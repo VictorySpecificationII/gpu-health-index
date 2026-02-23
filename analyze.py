@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 import argparse
+import json
+
 import pandas as pd
 import matplotlib.pyplot as plt
-import json
+
+
+def print_summary(label: str, df: pd.DataFrame) -> None:
+    print(f"\n=== {label} ===")
+    print(f"Samples: {len(df)}")
+    print(f"Power W: mean={df['power_w'].mean():.2f}  p95={df['power_w'].quantile(0.95):.2f}")
+    print(f"Temp  C: mean={df['temp_c'].mean():.2f}  p95={df['temp_c'].quantile(0.95):.2f}")
+    print(f"SM clk : mean={df['sm_clock_mhz'].mean():.1f}  std={df['sm_clock_mhz'].std():.1f}")
+    if df["iters_per_sec"].notna().any():
+        print(f"Iters/s: mean={df['iters_per_sec'].mean():.3f}  std={df['iters_per_sec'].std():.3f}")
+    if df["perf_per_watt"].notna().any():
+        print(f"Perf/W : mean={df['perf_per_watt'].mean():.6f}  std={df['perf_per_watt'].std():.6f}")
 
 
 def main():
     p = argparse.ArgumentParser(description="Analyze NVML + GEMM throughput run")
     p.add_argument("--nvml", required=True, help="NVML CSV (data/..._nvml.csv)")
     p.add_argument("--gemm", required=True, help="GEMM CSV (data/..._gemm.csv)")
-    p.add_argument("--out_prefix", default="data/h200_run1", help="Output prefix for plots/csv")
-    p.add_argument("--phases", default=None, help="Path to phases.json (idle_s/load_s/cooldown_s)")
+    p.add_argument("--out_prefix", default="data/run", help="Output prefix for plots/csv")
+    p.add_argument("--phases", default=None, help="Path to phases.json (idle_s/load_s/cooldown_s/steady_trim_s)")
     args = p.parse_args()
 
     nvml = pd.read_csv(args.nvml)
@@ -40,9 +53,9 @@ def main():
     print(f"Wrote {out_csv}")
 
     # Plot helper
-    def plot_series(ycol, ylabel, fname):
+    def plot_series(df, ycol, ylabel, fname):
         plt.figure()
-        plt.plot(merged["ts"], merged[ycol])
+        plt.plot(df["ts"], df[ycol])
         plt.xlabel("Time (UTC)")
         plt.ylabel(ylabel)
         plt.tight_layout()
@@ -50,56 +63,91 @@ def main():
         plt.savefig(out, dpi=150)
         print(f"Wrote {out}")
 
-    plot_series("power_w", "Power (W)", "power")
-    plot_series("temp_c", "GPU Temp (C)", "temp")
-    plot_series("sm_clock_mhz", "SM Clock (MHz)", "sm_clock")
-    plot_series("iters_per_sec", "GEMM iters/sec", "iters_per_sec")
-    plot_series("perf_per_watt", "iters/sec/W", "perf_per_watt")
+    plot_series(merged, "power_w", "Power (W)", "power")
+    plot_series(merged, "temp_c", "GPU Temp (C)", "temp")
+    plot_series(merged, "sm_clock_mhz", "SM Clock (MHz)", "sm_clock")
+    plot_series(merged, "iters_per_sec", "GEMM iters/sec", "iters_per_sec")
+    plot_series(merged, "perf_per_watt", "iters/sec/W", "perf_per_watt")
 
-    # Load window: where iters_per_sec is present and > 0
-    load = merged[(merged["iters_per_sec"].notna()) & (merged["iters_per_sec"] > 0)]
+    # ---------------------------
+    # Phase slicing (deterministic if phases.json is provided)
+    # ---------------------------
+    if args.phases:
+        with open(args.phases, "r", encoding="utf-8") as pf:
+            ph = json.load(pf)
+
+        idle_s = int(ph.get("idle_s", 0))
+        load_s = int(ph.get("load_s", 0))
+        cooldown_s = int(ph.get("cooldown_s", 0))
+        steady_trim_s = int(ph.get("steady_trim_s", 0))
+
+        t0 = merged["ts"].min()
+        t_idle_end = t0 + pd.Timedelta(seconds=idle_s)
+        t_load_end = t_idle_end + pd.Timedelta(seconds=load_s)
+        t_cool_end = t_load_end + pd.Timedelta(seconds=cooldown_s)
+
+        idle = merged[(merged["ts"] >= t0) & (merged["ts"] < t_idle_end)].copy()
+        load = merged[(merged["ts"] >= t_idle_end) & (merged["ts"] < t_load_end)].copy()
+        cooldown = merged[(merged["ts"] >= t_load_end) & (merged["ts"] < t_cool_end)].copy()
+
+        load_ss_start = t_idle_end + pd.Timedelta(seconds=steady_trim_s)
+        load_ss = load[load["ts"] >= load_ss_start].copy()
+
+        phase_mode = "phases.json"
+    else:
+        # Heuristic fallback: load where iters_per_sec exists and > 0
+        load = merged[(merged["iters_per_sec"].notna()) & (merged["iters_per_sec"] > 0)].copy()
+        idle = merged[merged["iters_per_sec"].isna()].copy()
+        cooldown = merged.iloc[0:0].copy()
+        load_ss = load.iloc[30:].copy() if len(load) > 40 else load.copy()
+        phase_mode = "heuristic"
 
     if len(load) == 0:
-        print("\nNo load samples found (iters_per_sec missing). Did the GEMM run overlap with collector timestamps?")
+        print("\nNo load samples found. Did the GEMM run overlap with collector timestamps?")
         return
 
-    print("\n=== LOAD WINDOW SUMMARY ===")
-    print(f"Samples: {len(load)}")
-    print(f"Power W: mean={load['power_w'].mean():.2f}  p95={load['power_w'].quantile(0.95):.2f}")
-    print(f"Temp  C: mean={load['temp_c'].mean():.2f}  p95={load['temp_c'].quantile(0.95):.2f}")
-    print(f"SM clk : mean={load['sm_clock_mhz'].mean():.1f}  std={load['sm_clock_mhz'].std():.1f}")
-    print(f"Iters/s: mean={load['iters_per_sec'].mean():.3f}  std={load['iters_per_sec'].std():.3f}")
-    print(f"Perf/W : mean={load['perf_per_watt'].mean():.6f}  std={load['perf_per_watt'].std():.6f}")
+    print(f"\nPhase selection mode: {phase_mode}")
 
-    # --- Health scoring (v0, envelope-based) ---
-    # Use steady-state load window: drop first 30 samples to reduce ramp/boost noise
-    load_ss = load.iloc[30:].copy() if len(load) > 40 else load.copy()
+    # Print both full and steady-state summaries to avoid confusion
+    print_summary("LOAD WINDOW SUMMARY (full)", load)
+    print_summary("LOAD WINDOW SUMMARY (steady-state)", load_ss)
 
-    # Tunable thresholds (explicit & explainable)
-    TEMP_P95_WARN = 80.0   # C
-    TEMP_P95_BAD = 90.0    # C
+    # ---------------------------
+    # Health scoring (v0, envelope-based, explainable)
+    # ---------------------------
+    # Tunable thresholds
+    TEMP_P95_WARN = 80.0    # C
+    TEMP_P95_BAD = 90.0     # C
 
-    CLK_STD_WARN = 120.0   # MHz (conservative)
-    PERF_W_COV_WARN = 0.20 # Coefficient of variation (std/mean)
+    CLK_STD_WARN = 120.0    # MHz (conservative)
+    PERF_W_COV_WARN = 0.20  # coefficient of variation (std/mean)
+
+    # Power headroom policy (penalize sustained saturation slightly)
+    PWR_HIGH_RATIO = 0.98   # "near limit"
+    PWR_PENALTY_MAX = 3.0   # max points deducted for sustained saturation
 
     score = 100.0
     reasons = []
 
-    # Temperature penalty based on steady-state p95
+    # Use steady-state load window for scoring
+    if len(load_ss) == 0:
+        load_ss = load.copy()
+
+    # Temperature penalty
     temp_p95 = float(load_ss["temp_c"].quantile(0.95))
     if temp_p95 > TEMP_P95_WARN:
         penalty = 25.0 if temp_p95 >= TEMP_P95_BAD else 10.0
         score -= penalty
         reasons.append(f"Thermal: p95 temp {temp_p95:.1f}C (penalty {penalty:.0f})")
 
-    # Clock stability penalty based on SM clock stddev
+    # Clock stability penalty
     clk_std = float(load_ss["sm_clock_mhz"].std())
     if clk_std > CLK_STD_WARN:
         penalty = min(15.0, (clk_std - CLK_STD_WARN) / 20.0)  # capped
         score -= penalty
         reasons.append(f"Clocks: SM clock std {clk_std:.1f}MHz (penalty {penalty:.1f})")
 
-    # Efficiency stability penalty based on perf/W coefficient of variation
+    # Perf/W stability penalty
     perf_w = load_ss["perf_per_watt"].dropna()
     cov = None
     if len(perf_w) > 20 and perf_w.mean() > 0:
@@ -108,6 +156,24 @@ def main():
             penalty = min(10.0, (cov - PERF_W_COV_WARN) * 25.0)
             score -= penalty
             reasons.append(f"Efficiency: perf/W CoV {cov:.3f} (penalty {penalty:.1f})")
+
+    # Power saturation penalty (fraction-of-time near power limit)
+    pwr_mean = float(load_ss["power_w"].mean())
+    pwr_limit = None
+    if "power_limit_w" in load_ss.columns and load_ss["power_limit_w"].notna().any():
+        pwr_limit = float(load_ss["power_limit_w"].dropna().iloc[0])
+
+    pct_high = None
+    if pwr_limit and "power_w" in load_ss.columns:
+        ratio_series = (load_ss["power_w"] / pwr_limit).dropna()
+        if len(ratio_series) > 0:
+            pct_high = float((ratio_series >= PWR_HIGH_RATIO).mean())
+            penalty = PWR_PENALTY_MAX * pct_high
+            score -= penalty
+            reasons.append(
+                f"Power headroom: {pct_high*100:.1f}% samples ≥ {PWR_HIGH_RATIO*100:.1f}% of limit "
+                f"({pwr_mean:.1f}W mean, limit {pwr_limit:.1f}W) (penalty {penalty:.1f})"
+            )
 
     score = max(0.0, min(100.0, score))
 
@@ -131,15 +197,9 @@ def main():
 
     # Write a small report snippet for reuse
     report_path = f"{args.out_prefix}_report.md"
-    pwr_mean = float(load_ss["power_w"].mean())
-    pwr_limit = (
-        float(load_ss["power_limit_w"].dropna().iloc[0])
-        if "power_limit_w" in load_ss.columns and load_ss["power_limit_w"].notna().any()
-        else None
-    )
-
     with open(report_path, "w", encoding="utf-8") as rf:
         rf.write("# GPU Health Index Report (v0)\n\n")
+        rf.write(f"- Phase selection mode: **{phase_mode}**\n")
         rf.write(f"- Classification: **{cls}**\n")
         rf.write(f"- Health Score: **{score:.1f} / 100**\n\n")
 
@@ -148,7 +208,9 @@ def main():
         rf.write(f"- Power mean: {pwr_mean:.2f} W\n")
         if pwr_limit is not None:
             rf.write(f"- Power limit: {pwr_limit:.2f} W\n")
-            rf.write(f"- Power ratio: {(pwr_mean / pwr_limit) * 100:.2f}%\n")
+            rf.write(f"- Power ratio (mean): {(pwr_mean / pwr_limit) * 100:.2f}%\n")
+        if pct_high is not None:
+            rf.write(f"- Power saturation: {pct_high*100:.2f}% samples ≥ {PWR_HIGH_RATIO*100:.1f}% of limit\n")
         rf.write(f"- Temp p95: {temp_p95:.2f} C\n")
         rf.write(f"- SM clock std: {clk_std:.2f} MHz\n")
         if len(perf_w) > 0:

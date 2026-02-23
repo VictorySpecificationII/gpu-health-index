@@ -1,19 +1,21 @@
 # GPU Health Index Report (v0)
 
+- Phase selection mode: **phases.json**
 - Classification: **Healthy**
-- Health Score: **100.0 / 100**
+- Health Score: **97.0 / 100**
 
 ## Load Window Summary (steady-state)
 
-- Samples: 271
-- Power mean: 690.43 W
+- Samples: 270
+- Power mean: 692.28 W
 - Power limit: 700.00 W
-- Power ratio: 98.63%
+- Power ratio (mean): 98.90%
+- Power saturation: 100.00% samples ≥ 98.0% of limit
 - Temp p95: 64.00 C
-- SM clock std: 34.85 MHz
-- Perf/W mean: 0.881892
-- Perf/W CoV: 0.156131
+- SM clock std: 12.66 MHz
+- Perf/W mean: 0.873564
+- Perf/W CoV: 0.001876
 
 ## Notes
 
-- No penalties triggered (within envelope thresholds).
+- Power headroom: 100.0% samples ≥ 98.0% of limit (692.3W mean, limit 700.0W) (penalty 3.0)
