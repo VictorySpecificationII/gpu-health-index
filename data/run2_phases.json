@@ -1,0 +1,6 @@
+{
+  "idle_s": 180,
+  "load_s": 300,
+  "cooldown_s": 180,
+  "steady_trim_s": 30
+}

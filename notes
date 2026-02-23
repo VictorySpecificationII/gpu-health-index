@@ -1,0 +1,12 @@
+./run_experiment.sh
+
+
+shorter run to save money
+
+OUT_PREFIX=data/h200_quick IDLE_S=60 LOAD_S=120 COOLDOWN_S=60 ./run_experiment.sh
+
+or change gemm size
+
+GEMM_N=6144 ./run_experiment.sh
+
+
