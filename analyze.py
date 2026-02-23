@@ -2,6 +2,7 @@
 import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
 
 
 def main():
@@ -9,6 +10,7 @@ def main():
     p.add_argument("--nvml", required=True, help="NVML CSV (data/..._nvml.csv)")
     p.add_argument("--gemm", required=True, help="GEMM CSV (data/..._gemm.csv)")
     p.add_argument("--out_prefix", default="data/h200_run1", help="Output prefix for plots/csv")
+    p.add_argument("--phases", default=None, help="Path to phases.json (idle_s/load_s/cooldown_s)")
     args = p.parse_args()
 
     nvml = pd.read_csv(args.nvml)
