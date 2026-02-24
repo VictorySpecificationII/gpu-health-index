@@ -24,6 +24,7 @@ def main():
     p.add_argument("--gemm", required=True, help="GEMM CSV (data/..._gemm.csv)")
     p.add_argument("--out_prefix", default="data/run", help="Output prefix for plots/csv")
     p.add_argument("--phases", default=None, help="Path to phases.json (idle_s/load_s/cooldown_s/steady_trim_s)")
+    p.add_argument("--baseline", default=None, help="Path to baseline.json (adds perf/W drift penalty)")
     args = p.parse_args()
 
     nvml = pd.read_csv(args.nvml)
@@ -94,11 +95,11 @@ def main():
         load_ss = load[load["ts"] >= load_ss_start].copy()
 
         phase_mode = "phases.json"
+        _ = idle
+        _ = cooldown
     else:
         # Heuristic fallback: load where iters_per_sec exists and > 0
         load = merged[(merged["iters_per_sec"].notna()) & (merged["iters_per_sec"] > 0)].copy()
-        idle = merged[merged["iters_per_sec"].isna()].copy()
-        cooldown = merged.iloc[0:0].copy()
         load_ss = load.iloc[30:].copy() if len(load) > 40 else load.copy()
         phase_mode = "heuristic"
 
@@ -113,7 +114,7 @@ def main():
     print_summary("LOAD WINDOW SUMMARY (steady-state)", load_ss)
 
     # ---------------------------
-    # Health scoring (v0, envelope-based, explainable)
+    # Health scoring (v0 + baseline-relative drift)
     # ---------------------------
     # Tunable thresholds
     TEMP_P95_WARN = 80.0    # C
@@ -125,6 +126,14 @@ def main():
     # Power headroom policy (penalize sustained saturation slightly)
     PWR_HIGH_RATIO = 0.98   # "near limit"
     PWR_PENALTY_MAX = 3.0   # max points deducted for sustained saturation
+
+    # Baseline-relative degradation thresholds (perf/W drop)
+    PERF_DROP_WARN = 0.03   # 3%
+    PERF_DROP_BAD = 0.07    # 7%
+    PERF_DROP_SEVERE = 0.12 # 12%
+    PERF_DROP_PEN_WARN = 5.0
+    PERF_DROP_PEN_BAD = 15.0
+    PERF_DROP_PEN_SEVERE = 30.0
 
     score = 100.0
     reasons = []
@@ -149,6 +158,7 @@ def main():
 
     # Perf/W stability penalty
     perf_w = load_ss["perf_per_watt"].dropna()
+    perf_w_mean = float(perf_w.mean()) if len(perf_w) > 0 else None
     cov = None
     if len(perf_w) > 20 and perf_w.mean() > 0:
         cov = float(perf_w.std() / perf_w.mean())
@@ -175,6 +185,36 @@ def main():
                 f"({pwr_mean:.1f}W mean, limit {pwr_limit:.1f}W) (penalty {penalty:.1f})"
             )
 
+    # Baseline-relative perf/W degradation penalty
+    baseline_perf = None
+    drop = None
+    if args.baseline and perf_w_mean is not None:
+        with open(args.baseline, "r", encoding="utf-8") as bf:
+            b = json.load(bf)
+        baseline_perf = float(b.get("perf_per_watt_mean"))
+        if baseline_perf and baseline_perf > 0:
+            drop = 1.0 - (perf_w_mean / baseline_perf)
+
+            if drop > PERF_DROP_SEVERE:
+                penalty = PERF_DROP_PEN_SEVERE
+            elif drop > PERF_DROP_BAD:
+                penalty = PERF_DROP_PEN_BAD
+            elif drop > PERF_DROP_WARN:
+                penalty = PERF_DROP_PEN_WARN
+            else:
+                penalty = 0.0
+
+            if penalty > 0:
+                score -= penalty
+                reasons.append(
+                    f"Degradation: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} "
+                    f"({drop*100:.1f}% drop) (penalty {penalty:.0f})"
+                )
+            else:
+                reasons.append(
+                    f"Baseline: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} ({drop*100:.1f}% drop)"
+                )
+
     score = max(0.0, min(100.0, score))
 
     if score >= 85:
@@ -195,11 +235,13 @@ def main():
     else:
         print("Notes: No penalties triggered (within envelope thresholds).")
 
-    # Write a small report snippet for reuse
+    # Write report snippet
     report_path = f"{args.out_prefix}_report.md"
     with open(report_path, "w", encoding="utf-8") as rf:
         rf.write("# GPU Health Index Report (v0)\n\n")
         rf.write(f"- Phase selection mode: **{phase_mode}**\n")
+        if args.baseline:
+            rf.write(f"- Baseline: **{args.baseline}**\n")
         rf.write(f"- Classification: **{cls}**\n")
         rf.write(f"- Health Score: **{score:.1f} / 100**\n\n")
 
@@ -213,10 +255,13 @@ def main():
             rf.write(f"- Power saturation: {pct_high*100:.2f}% samples ≥ {PWR_HIGH_RATIO*100:.1f}% of limit\n")
         rf.write(f"- Temp p95: {temp_p95:.2f} C\n")
         rf.write(f"- SM clock std: {clk_std:.2f} MHz\n")
-        if len(perf_w) > 0:
-            rf.write(f"- Perf/W mean: {perf_w.mean():.6f}\n")
+        if perf_w_mean is not None:
+            rf.write(f"- Perf/W mean: {perf_w_mean:.6f}\n")
         if cov is not None:
             rf.write(f"- Perf/W CoV: {cov:.6f}\n")
+        if baseline_perf is not None and drop is not None:
+            rf.write(f"- Baseline perf/W: {baseline_perf:.6f}\n")
+            rf.write(f"- Perf/W drop vs baseline: {drop*100:.2f}%\n")
 
         rf.write("\n## Notes\n\n")
         if reasons:
