@@ -2,8 +2,8 @@
 import argparse
 import json
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def print_summary(label: str, df: pd.DataFrame) -> None:
@@ -73,6 +73,11 @@ def main():
     # ---------------------------
     # Phase slicing (deterministic if phases.json is provided)
     # ---------------------------
+    idle_s = None
+    load_s = None
+    cooldown_s = None
+    steady_trim_s = None
+
     if args.phases:
         with open(args.phases, "r", encoding="utf-8") as pf:
             ph = json.load(pf)
@@ -135,6 +140,11 @@ def main():
     PERF_DROP_PEN_BAD = 15.0
     PERF_DROP_PEN_SEVERE = 30.0
 
+    # New: "effective steady-load" gating
+    STEADY_PWR_RATIO = 0.90      # require >=90% of power limit to consider samples comparable
+    MIN_STEADY_SAMPLES = 60      # require enough samples to compare to baseline / compute stable stats
+    MIN_STEADY_FRACTION = 0.50   # if less than 50% of steady-state samples are steady-power, treat as incomplete
+
     score = 100.0
     reasons = []
 
@@ -142,22 +152,53 @@ def main():
     if len(load_ss) == 0:
         load_ss = load.copy()
 
-    # Temperature penalty
-    temp_p95 = float(load_ss["temp_c"].quantile(0.95))
+    # Power limit (if present)
+    pwr_limit = None
+    if "power_limit_w" in load_ss.columns and load_ss["power_limit_w"].notna().any():
+        pwr_limit = float(load_ss["power_limit_w"].dropna().iloc[0])
+
+    # Build effective steady-load slice (only if we know power limit)
+    if pwr_limit is not None and "power_w" in load_ss.columns:
+        load_eff = load_ss[load_ss["power_w"] >= (STEADY_PWR_RATIO * pwr_limit)].copy()
+        eff_mode = f"power>={STEADY_PWR_RATIO:.2f}*limit"
+    else:
+        load_eff = load_ss.copy()
+        eff_mode = "no_power_limit"
+
+    # Guard: avoid scoring nonsense when steady-state is mostly not at steady load
+    if len(load_ss) > 0:
+        eff_frac = len(load_eff) / max(1, len(load_ss))
+        if eff_frac < MIN_STEADY_FRACTION:
+            print("\n=== HEALTH SCORE (v0) ===")
+            print("Health Score: N/A  ->  Incomplete Telemetry")
+            print(f"Notes: insufficient steady-load samples ({len(load_eff)} of {len(load_ss)} steady-state; mode={eff_mode}).")
+            return
+
+    # --- Telemetry completeness guard (avoid false "Healthy" on partial phase coverage) ---
+    if args.phases and len(load) > 0:
+        # steady-state should be most of load (e.g. 270/300 in your long runs)
+        if len(load_ss) < int(0.7 * len(load)):
+            print("\n=== HEALTH SCORE (v0) ===")
+            print("Health Score: N/A  ->  Incomplete Telemetry")
+            print(f"Notes: steady-state samples too low ({len(load_ss)} of {len(load)} load samples).")
+            return
+
+    # Temperature penalty (use effective load)
+    temp_p95 = float(load_eff["temp_c"].quantile(0.95))
     if temp_p95 > TEMP_P95_WARN:
         penalty = 25.0 if temp_p95 >= TEMP_P95_BAD else 10.0
         score -= penalty
         reasons.append(f"Thermal: p95 temp {temp_p95:.1f}C (penalty {penalty:.0f})")
 
-    # Clock stability penalty
-    clk_std = float(load_ss["sm_clock_mhz"].std())
+    # Clock stability penalty (use effective load)
+    clk_std = float(load_eff["sm_clock_mhz"].std())
     if clk_std > CLK_STD_WARN:
         penalty = min(15.0, (clk_std - CLK_STD_WARN) / 20.0)  # capped
         score -= penalty
         reasons.append(f"Clocks: SM clock std {clk_std:.1f}MHz (penalty {penalty:.1f})")
 
-    # Perf/W stability penalty
-    perf_w = load_ss["perf_per_watt"].dropna()
+    # Perf/W stability penalty (use effective load)
+    perf_w = load_eff["perf_per_watt"].dropna()
     perf_w_mean = float(perf_w.mean()) if len(perf_w) > 0 else None
     cov = None
     if len(perf_w) > 20 and perf_w.mean() > 0:
@@ -167,15 +208,11 @@ def main():
             score -= penalty
             reasons.append(f"Efficiency: perf/W CoV {cov:.3f} (penalty {penalty:.1f})")
 
-    # Power saturation penalty (fraction-of-time near power limit)
-    pwr_mean = float(load_ss["power_w"].mean())
-    pwr_limit = None
-    if "power_limit_w" in load_ss.columns and load_ss["power_limit_w"].notna().any():
-        pwr_limit = float(load_ss["power_limit_w"].dropna().iloc[0])
-
+    # Power saturation penalty (fraction-of-time near power limit) — use effective load window
+    pwr_mean = float(load_eff["power_w"].mean())
     pct_high = None
-    if pwr_limit and "power_w" in load_ss.columns:
-        ratio_series = (load_ss["power_w"] / pwr_limit).dropna()
+    if pwr_limit is not None and "power_w" in load_eff.columns:
+        ratio_series = (load_eff["power_w"] / pwr_limit).dropna()
         if len(ratio_series) > 0:
             pct_high = float((ratio_series >= PWR_HIGH_RATIO).mean())
             penalty = PWR_PENALTY_MAX * pct_high
@@ -189,31 +226,37 @@ def main():
     baseline_perf = None
     drop = None
     if args.baseline and perf_w_mean is not None:
-        with open(args.baseline, "r", encoding="utf-8") as bf:
-            b = json.load(bf)
-        baseline_perf = float(b.get("perf_per_watt_mean"))
-        if baseline_perf and baseline_perf > 0:
-            drop = 1.0 - (perf_w_mean / baseline_perf)
+        # Only compare to baseline if we have enough steady-load samples
+        if len(load_eff) < MIN_STEADY_SAMPLES:
+            reasons.append(
+                f"Baseline: skipped (only {len(load_eff)} steady-load samples; need ≥ {MIN_STEADY_SAMPLES})."
+            )
+        else:
+            with open(args.baseline, "r", encoding="utf-8") as bf:
+                b = json.load(bf)
+            baseline_perf = float(b.get("perf_per_watt_mean"))
+            if baseline_perf and baseline_perf > 0:
+                drop = 1.0 - (perf_w_mean / baseline_perf)
 
-            if drop > PERF_DROP_SEVERE:
-                penalty = PERF_DROP_PEN_SEVERE
-            elif drop > PERF_DROP_BAD:
-                penalty = PERF_DROP_PEN_BAD
-            elif drop > PERF_DROP_WARN:
-                penalty = PERF_DROP_PEN_WARN
-            else:
-                penalty = 0.0
+                if drop > PERF_DROP_SEVERE:
+                    penalty = PERF_DROP_PEN_SEVERE
+                elif drop > PERF_DROP_BAD:
+                    penalty = PERF_DROP_PEN_BAD
+                elif drop > PERF_DROP_WARN:
+                    penalty = PERF_DROP_PEN_WARN
+                else:
+                    penalty = 0.0
 
-            if penalty > 0:
-                score -= penalty
-                reasons.append(
-                    f"Degradation: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} "
-                    f"({drop*100:.1f}% drop) (penalty {penalty:.0f})"
-                )
-            else:
-                reasons.append(
-                    f"Baseline: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} ({drop*100:.1f}% drop)"
-                )
+                if penalty > 0:
+                    score -= penalty
+                    reasons.append(
+                        f"Degradation: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} "
+                        f"({drop*100:.1f}% drop) (penalty {penalty:.0f})"
+                    )
+                else:
+                    reasons.append(
+                        f"Baseline: perf/W mean {perf_w_mean:.6f} vs baseline {baseline_perf:.6f} ({drop*100:.1f}% drop)"
+                    )
 
     score = max(0.0, min(100.0, score))
 
@@ -240,13 +283,15 @@ def main():
     with open(report_path, "w", encoding="utf-8") as rf:
         rf.write("# GPU Health Index Report (v0)\n\n")
         rf.write(f"- Phase selection mode: **{phase_mode}**\n")
+        rf.write(f"- Effective load filter: **{eff_mode}**\n")
         if args.baseline:
             rf.write(f"- Baseline: **{args.baseline}**\n")
         rf.write(f"- Classification: **{cls}**\n")
         rf.write(f"- Health Score: **{score:.1f} / 100**\n\n")
 
         rf.write("## Load Window Summary (steady-state)\n\n")
-        rf.write(f"- Samples: {len(load_ss)}\n")
+        rf.write(f"- Samples (steady-state): {len(load_ss)}\n")
+        rf.write(f"- Samples (effective load): {len(load_eff)}\n")
         rf.write(f"- Power mean: {pwr_mean:.2f} W\n")
         if pwr_limit is not None:
             rf.write(f"- Power limit: {pwr_limit:.2f} W\n")

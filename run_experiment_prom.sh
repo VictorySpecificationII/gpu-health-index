@@ -38,6 +38,14 @@ cat > "${PHASES_JSON}" <<JSON
 JSON
 echo "Wrote phases: ${PHASES_JSON}"
 
+# Resolve UUID for this GPU index (stable identifier)
+GPU_UUID="$(nvidia-smi --query-gpu=uuid --format=csv,noheader | sed -n "$((GPU_INDEX+1))p" | tr -d '[:space:]')"
+if [[ -z "${GPU_UUID}" ]]; then
+  echo "ERROR: could not resolve GPU UUID for GPU_INDEX=${GPU_INDEX}" >&2
+  exit 2
+fi
+echo "GPU UUID:            ${GPU_UUID}"
+
 # Record experiment window boundaries (epoch seconds, UTC)
 t0=$(date -u +%s)
 echo "t0_epoch=${t0} (UTC)"
@@ -59,9 +67,22 @@ echo "t1_epoch=${t1} (UTC)"
 START=$((t0 - 5))
 END=$((t1 + 5))
 
+# Expected samples (rough): window_seconds / step
+WINDOW_S=$((END - START))
+EXPECTED=$(( WINDOW_S / INTERVAL_S ))
+MIN_ROWS=$(( EXPECTED * 80 / 100 ))   # require >=80% of expected
+
 echo
 echo "Exporting Prom telemetry -> ${PROM_NVML_CSV}"
-./prom_export.py --prom "${PROM_URL}" --gpu "${GPU_INDEX}" --start "${START}" --end "${END}" --step "${INTERVAL_S}" --out "${PROM_NVML_CSV}"
+./prom_export.py \
+  --prom "${PROM_URL}" \
+  --uuid "${GPU_UUID}" \
+  --start "${START}" \
+  --end "${END}" \
+  --step "${INTERVAL_S}" \
+  --min_rows "${MIN_ROWS}" \
+  --max_median_dt 2.5 \
+  --out "${PROM_NVML_CSV}"
 
 echo
 echo "Analyzing..."
