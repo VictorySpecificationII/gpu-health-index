@@ -1,265 +1,373 @@
-GPU Health Index (v0)
+# GPU Health Index (v0)
 
-A deterministic, explainable methodology for assessing GPU health using telemetry, stress testing, and baseline-relative degradation analysis.
+Deterministic GPU health scoring using:
 
-This project demonstrates how to:
+- NVIDIA DCGM Exporter
 
-Collect GPU telemetry using NVML
+- NVIDIA NVML
 
-Run controlled stress workloads (PyTorch GEMM)
+- Prometheus (1s scrape)
 
-Define steady-state load windows deterministically
+- Optional active GEMM probe
 
-Build a reproducible performance baseline
+- Baseline-relative performance drift detection
 
-Detect degradation using baseline-relative drift
+- Optional long-running health agent
 
-Classify GPUs into operational health categories
+This repository provides a reproducible reference implementation for evaluating GPU thermal, power, clock, and performance health.
 
-This is not a monitoring dashboard.
-This is a reliability engineering experiment.
 
-1. Motivation
+## Table of Contents
 
-Large GPU fleets degrade.
+1. Overview
 
-Not catastrophically at first — but gradually:
+2. Architecture
 
-Clock instability
+3. Requirements
 
-Thermal envelope expansion
+4. Setup (DCGM + Prometheus)
 
-Efficiency decay
+5. Running a Full Health Experiment
 
-Sustained power saturation
+6. Creating a Baseline
 
-The goal is to detect measurable degradation before failure, using:
+7. Replay Validation
 
-Controlled workload conditions
+8. Always-On Agent
 
-Deterministic slicing of telemetry windows
+9. Health Model (v0)
 
-Explicit scoring logic
+10. Notes & Scope
 
-No black-box ML
 
-The output is an explainable health score and classification.
+## 1. Overview
 
-2. Methodology Overview
+The GPU Health Index combines:
 
-Each experiment consists of three deterministic phases:
+### Passive telemetry
 
-Idle      →  Load      →  Cooldown
-180s         300s         180s
+- Power usage
 
-Telemetry is collected at 1-second resolution:
+- GPU temperature
 
-Power (W)
+- SM clock stability
 
-Temperature (°C)
+- Power headroom
 
-SM clock (MHz)
+### Active probe (optional)
 
-Throughput (iters/sec)
+- Sustained GEMM workload
 
-Derived: perf_per_watt
+- Iterations/sec
 
-A steady-state trim removes ramp noise from the load window.
+- Perf-per-watt comparison against baseline
 
-All scoring is performed on the steady-state window.
+### Scoring
 
-3. Health Score Model (v0)
+Score starts at 100 and deducts based on:
 
-Score starts at 100.
+- Thermal envelope violations
 
-Penalties are explicitly defined:
+- Clock instability
 
-Thermal envelope
+- Sustained power saturation
 
-p95 > 80°C → -10
+- Performance degradation vs baseline
 
-p95 ≥ 90°C → -25
+## 2. Architecture
 
-Clock instability
+```bash
++-------------------+
+|  DCGM Exporter    |
+|  (port 9400)      |
++-------------------+
+           |
+           v
++-------------------+
+|   Prometheus      |
+|   (port 9090)     |
++-------------------+
+           |
+           v
++-------------------+
+|  prom_export.py   |
++-------------------+
+           |
+           v
++-------------------+
+|   analyze.py      |
++-------------------+
+           |
+           v
++-------------------+
+| Health Score v0   |
++-------------------+
 
-SM clock stddev > 120 MHz → penalty up to -15
+Optional:
 
-Efficiency instability
+agent.py --> exports Prometheus metrics (:9108)
 
-perf/W coefficient of variation > 0.20 → penalty up to -10
+```
 
-Power headroom
+## 3. Requirements
 
-Fraction of samples ≥ 98% of power limit
+- NVIDIA driver installed
 
-Max penalty: -3
+- Docker + Docker Compose
 
-Baseline-relative degradation (perf/W drop)
+- Python 3.9+
 
-Compared to baseline steady-state mean:
+- pip packages:
 
-3% drop → -5
+  - pandas
 
-7% drop → -15
+  - matplotlib
 
-12% drop → -30
+  - prometheus-client (for agent)
 
-Classification:
+Install Python dependencies:
 
-≥ 85 → Healthy
+```bash
+pip install -r requirements.txt
+pip install prometheus-client
+```
 
-≥ 70 → Monitor
+## 4. Setup: DCGM + Prometheus
 
-≥ 50 → Degrading
 
-< 50 → Decommission Candidate
+Start telemetry stack:
 
-All penalties are explainable and visible in output.
+```bash
+docker compose -f docker-compose.dcgm-prom.yml up -d
+```
 
-4. Running a Real Experiment
-4.1 Run controlled test
+Verify exporter:
 
-./run_experiment.sh
+```bash
+curl -s http://127.0.0.1:9400/metrics | head
+```
 
-Or specify output prefix:
+Verify Prometheus:
 
-OUT_PREFIX=data/run2 ./run_experiment.sh
+```bash
+curl -s http://127.0.0.1:9090/-/ready
+```
 
-Artifacts produced:
+Expected:
 
-data/runX_nvml.csv
-data/runX_gemm.csv
-data/runX_merged.csv
-data/runX_report.md
-data/runX_*.png
+```bash
+Prometheus Server is Ready.
+```
 
-4.2 Build Baseline
+## 5. Run a Full Health Experiment
 
-After 3 stable runs:
+This performs:
 
-./make_baseline.py \
-  --merged data/run1_merged.csv data/run2_merged.csv data/run3_merged.csv \
-  --phases data/run1_phases.json \
+- Idle phase
+
+- Sustained GEMM load
+
+- Cooldown
+
+- Prom telemetry export
+
+- Deterministic phase slicing
+
+- Health scoring
+
+- Plots + report generation
+
+### Get GPU index
+
+```bash
+nvidia-smi
+```
+
+GPU 0 is typically index 0.
+
+### Run experiment
+
+```bash
+OUT_PREFIX=data/run1 \
+GPU_INDEX=0 \
+INTERVAL_S=1 \
+IDLE_S=180 \
+LOAD_S=300 \
+COOLDOWN_S=180 \
+STEADY_TRIM_S=30 \
+./run_experiment_prom.sh
+```
+
+### Artifacts Generated
+
+```bash
+data/run1_nvml_prom.csv
+data/run1_gemm.csv
+data/run1_merged.csv
+data/run1_report.md
+
+data/run1_power.png
+data/run1_temp.png
+data/run1_sm_clock.png
+data/run1_iters_per_sec.png
+data/run1_perf_per_watt.png
+```
+
+## 6. Create a Baseline
+
+After a known-good run:
+
+```bash
+python make_baseline.py \
+  --merged data/run1_merged.csv \
   --out data/baseline.json
+```
 
 Example baseline:
 
-perf_per_watt_mean = 0.874878
+```bash
+{
+  "perf_per_watt_mean": 0.874878
+}
+```
 
-This becomes the reference envelope for degradation detection.
+## 7. Replay Validation
 
-5. Replay Degradation (Deterministic Simulation)
+Validate scoring logic against synthetic degraded dataset:
 
-Replay datasets simulate realistic degradation patterns:
+```bash
+./analyze_merged.py \
+  --merged data/replay/degrading_combined_severe.csv \
+  --phases data/run1_phases.json \
+  --baseline data/baseline.json \
+  --out_prefix /tmp/replay_test
+```
 
-Efficiency decay (-10%)
+Expected classification:
 
-Clock frequency drop (-8%)
+```bash
+Classification: Degrading
+Health Score: ~57
+```
 
-Thermal envelope expansion (+10°C)
+## 8. Prometheus Telemetry Smoke Test
 
-Combined strong degradation
+Get GPU UUID:
 
-Combined severe degradation
+```bash
+nvidia-smi --query-gpu=uuid --format=csv,noheader
+```
 
-Generate replay data:
+Export last 2 minutes of telemetry:
 
-python3 make_replay.py --in data/run1_merged.csv --out_dir data/replay
+```bash
+./prom_export.py \
+  --prom http://127.0.0.1:9090 \
+  --uuid GPU-xxxxxxxx \
+  --start $(date -u -d "2 minutes ago" +%s) \
+  --end $(date -u +%s) \
+  --step 1 \
+  --out /tmp/prom_smoke.csv
+```
 
-Run full demo:
+## 9. Always-On Health Agent (Optional)
 
-./run_replay_demo.sh
+The agent continuously:
 
-6. Example Classification Results
+- Pulls rolling Prometheus window
 
-Using a baseline of:
+- Computes passive health score
 
-perf/W mean = 0.874878
-
-Healthy (real runs)
-
-Health Score: 97.0 / 100 → Healthy
-Notes:
- - Power headroom penalty (3)
-
-Monitor (combined strong replay)
-
-Perf/W drop: 10.8%
-Health Score: 82.0 / 100 → Monitor
-Notes:
- - Power headroom penalty (3)
- - Degradation penalty (15)
-
-Degrading (combined severe replay)
-
-Perf/W drop: 16.2%
-Thermal p95: 82.8°C
-
-Health Score: 57.0 / 100 → Degrading
-Notes:
- - Thermal penalty (10)
- - Power headroom penalty (3)
- - Degradation penalty (30)
-
-The system responds predictably to measured degradation.
-
-7. Design Principles
-
-Deterministic phase slicing (no heuristics if phases.json provided)
-
-No hidden ML
-
-Explicit envelope thresholds
-
-Baseline-relative drift detection
-
-Reproducible experiments
-
-Clear, inspectable artifacts
-
-This mirrors how reliability engineers operate:
-
-Measure → Define envelope → Detect drift → Escalate
-
-8. Repository Structure
-
-collector.py              # NVML telemetry collection
-stress_torch_gemm.py      # Controlled GPU workload
-run_experiment.sh         # End-to-end experiment runner
-analyze.py                # Merge + score live run
-make_baseline.py          # Build baseline from stable runs
-make_replay.py            # Generate degradation simulations
-analyze_merged.py         # Score replay datasets
-run_replay_demo.sh        # Reproduce full demo
-
-9. Future Extensions
-
-DCGM integration
-
-Prometheus exporter
-
-Fleet-level aggregation
-
-Secondary market evaluation model
-
-Longitudinal degradation tracking
-
-10. Why This Matters
-
-This repository demonstrates:
-
-Hands-on GPU telemetry analysis
-
-Stress testing methodology
-
-Time-series degradation modeling
-
-Deterministic classification design
-
-Production-oriented reliability thinking
-
-It is not a monitoring dashboard.
-
-It is a structured health assessment framework for GPU infrastructure.
+- Exposes Prometheus metrics
 
 
+### Start Agent
+
+```bash
+./agent.py \
+  --prom http://127.0.0.1:9090 \
+  --uuid GPU-xxxxxxxx \
+  --listen 0.0.0.0:9108 \
+  --poll_s 30 \
+  --window_s 300 \
+  --step_s 1
+```
+
+Verify Agent Metrics
+
+```bash
+curl -s http://127.0.0.1:9108/metrics | grep gpu_health_score
+```
+
+Example:
+
+```bash
+gpu_health_score{uuid="GPU-..."} 97.0
+```
+
+### Metrics Exported
+
+```bash
+gpu_health_score
+
+gpu_health_class
+
+gpu_health_temp_p95_c
+
+gpu_health_sm_clock_std_mhz
+
+gpu_health_power_pct_near_limit
+
+gpu_health_telemetry_ok
+```
+
+## 10. Health Model (v0)
+
+Score starts at 100.
+
+Penalties
+
+Condition	Penalty
+Temp p95 > 80C	-10
+Temp p95 > 90C	-25
+SM clock instability	up to -15
+Sustained power saturation	up to -3
+Perf/W drop > 3%	-5
+Perf/W drop > 7%	-15
+Perf/W drop > 12%	-30
+
+Classification
+
+Score	Classification
+≥ 85	Healthy
+≥ 70	Monitor
+≥ 50	Degrading
+< 50	Decommission Candidate
+
+## 11. Scope & Status
+
+This is GPU Health Index v0.
+
+It is:
+
+- Deterministic
+
+- UUID-based (safe against index changes)
+
+- Replay-validated
+
+- Baseline-relative
+
+- Agent-capable
+
+It is not yet:
+
+- Multi-GPU cluster-wide
+
+- Kubernetes-native
+
+- Alertmanager-integrated
+
+- Production-hardened for HA
+
+It is intended as a clean reference foundation for further development.
