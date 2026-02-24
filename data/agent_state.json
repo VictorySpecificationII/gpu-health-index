@@ -1,0 +1,27 @@
+{
+  "latest": {
+    "baseline_perf_w": 0.8748778082827108,
+    "classification": "Healthy",
+    "clk_std": 0.0,
+    "last_probe_perf_w_mean": null,
+    "median_step_s": 1.0,
+    "pct_high": 0.0,
+    "perf_drop": null,
+    "power_limit": 700.0,
+    "power_mean": 80.75475747508305,
+    "reasons": [
+      "Power headroom: 0.0% samples \u2265 98.0% of limit (80.8W mean, limit 700.0W) (penalty 0.0)"
+    ],
+    "samples": 301,
+    "score": 100.0,
+    "telemetry_ok": true,
+    "temp_p95": 39.0,
+    "ts_utc": "2026-02-24T17:38:02.844780Z",
+    "uuid": "GPU-a8ca1b3c-0df3-7658-7d9b-28b18afdf7ba",
+    "window": {
+      "end_utc": "2026-02-24T17:38:02.841128Z",
+      "start_utc": "2026-02-24T17:33:02.841128Z",
+      "step_s": 1.0
+    }
+  }
+}
