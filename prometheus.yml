@@ -1,8 +1,17 @@
 global:
   scrape_interval: 1s
+  scrape_timeout: 900ms
   evaluation_interval: 1s
 
 scrape_configs:
   - job_name: "dcgm"
     static_configs:
       - targets: ["127.0.0.1:9400"]
+        labels:
+          env: "dev"
+          source: "dcgm-exporter"
+
+    metric_relabel_configs:
+      # Keep UUID and gpu index, drop the rest of the high-cardinality labels
+      - action: labeldrop
+        regex: "Hostname|pci_bus_id|device|modelName|DCGM_FI_DRIVER_VERSION"

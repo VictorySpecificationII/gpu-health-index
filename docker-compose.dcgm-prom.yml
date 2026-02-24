@@ -1,13 +1,9 @@
-version: "3.8"
-
 services:
-
   dcgm-exporter:
     image: nvidia/dcgm-exporter:4.5.1-4.8.0-ubuntu22.04
     container_name: dcgm-exporter
     restart: unless-stopped
     network_mode: host
-#    command: ["-f", "/etc/dcgm-exporter/custom-counters.csv"]
     command: ["-c", "1000", "-f", "/etc/dcgm-exporter/custom-counters.csv"]
     privileged: true
     environment:
@@ -21,7 +17,6 @@ services:
       - /dev/nvidia-modeset:/dev/nvidia-modeset
       - /dev/nvidia0:/dev/nvidia0
     volumes:
-      # Mount host driver libs + nvml into container (works when toolkit is missing/misconfigured)
       - /usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
       - /usr/lib64:/usr/lib64:ro
@@ -34,7 +29,10 @@ services:
     network_mode: host
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prom_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2d"
+      - "--storage.tsdb.wal-compression"
       - "--web.enable-lifecycle"
