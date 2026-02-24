@@ -1,236 +1,265 @@
-# Telemetry-Driven GPU Health Assessment  
-## A Baseline and Drift Methodology
+GPU Health Index (v0)
 
----
+A deterministic, explainable methodology for assessing GPU health using telemetry, stress testing, and baseline-relative degradation analysis.
 
-## Abstract
+This project demonstrates how to:
 
-This project defines a structured methodology for assessing GPU health using telemetry-derived metrics and controlled stress profiles. Rather than relying on snapshot inspection, the approach establishes per-device performance baselines and detects degradation through temporal drift analysis. The output is an interpretable health score intended to support maintenance, investigation, and decommissioning decisions.
+Collect GPU telemetry using NVML
 
-Telemetry collection is implemented using both NVIDIA Management Library (NVML) and Data Center GPU Manager (DCGM), enabling compatibility across standalone and fleet-scale environments.
+Run controlled stress workloads (PyTorch GEMM)
 
-Validation is performed on a single NVIDIA H200 instance for baseline characterization. Degradation behavior is demonstrated using replay-mode datasets simulating common failure patterns (e.g., ECC accumulation, throttling drift, performance-per-watt degradation).
+Define steady-state load windows deterministically
 
----
+Build a reproducible performance baseline
 
-## 1. Motivation
+Detect degradation using baseline-relative drift
 
-GPU failures in production environments are costly and rarely instantaneous. Degradation is often preceded by detectable signals such as:
+Classify GPUs into operational health categories
 
-- Increasing ECC error counts  
-- Sustained thermal stress  
-- Clock instability under steady load  
-- Elevated throttling frequency  
-- Declining performance-per-watt  
+This is not a monitoring dashboard.
+This is a reliability engineering experiment.
 
-Operational practices often rely on static thresholds or manual inspection. These approaches lack:
+1. Motivation
 
-- Per-device normalization  
-- Temporal trend awareness  
-- Reproducible stress conditions  
-- Quantified decision criteria  
+Large GPU fleets degrade.
 
-This project proposes a repeatable methodology emphasizing:
+Not catastrophically at first — but gradually:
 
-- Controlled baseline acquisition  
-- Temporal drift detection  
-- Explainable scoring logic  
-- Clear classification thresholds  
+Clock instability
 
----
+Thermal envelope expansion
 
-## 2. System Model
+Efficiency decay
 
-A GPU is modeled as a coupled thermodynamic and electrical system operating within defined envelopes of:
+Sustained power saturation
 
-- Power delivery  
-- Thermal dissipation  
-- Clock stability  
-- Memory integrity  
+The goal is to detect measurable degradation before failure, using:
 
-Telemetry signals are treated as observable proxies for internal state.
+Controlled workload conditions
 
-Health is defined not as an absolute constant, but as deviation from stable baseline behavior under controlled workload conditions.
+Deterministic slicing of telemetry windows
 
-### Assumptions
+Explicit scoring logic
 
-1. Telemetry contains noise and must be interpreted temporally.  
-2. Degradation is often gradual rather than binary.  
-3. Environmental factors (cooling, ambient temperature, workload type) influence observable metrics.  
-4. Interpretability is prioritized over black-box predictive modeling (v0 model).
+No black-box ML
 
----
+The output is an explainable health score and classification.
 
-## 3. Experimental Methodology
+2. Methodology Overview
 
-### 3.1 Baseline Acquisition
+Each experiment consists of three deterministic phases:
 
-A structured test sequence establishes per-device reference behavior:
+Idle      →  Load      →  Cooldown
+180s         300s         180s
 
-1. **Idle Phase**  
-   Capture steady-state baseline telemetry.
+Telemetry is collected at 1-second resolution:
 
-2. **Compute-Bound Stress**  
-   Sustained arithmetic workload to evaluate:
-   - SM clock stability  
-   - Power draw consistency  
-   - Thermal response  
+Power (W)
 
-3. **Memory-Bound Stress**  
-   Memory-intensive workload to evaluate:
-   - HBM utilization  
-   - Memory clock behavior  
-   - Bandwidth stability  
+Temperature (°C)
 
-4. **Thermal Soak**  
-   Sustained high-load period to assess:
-   - Long-term thermal equilibrium  
-   - Throttling onset  
-   - Power envelope limits  
+SM clock (MHz)
 
-5. **Cooldown Phase**  
-   Observe recovery behavior and thermal decay characteristics.
+Throughput (iters/sec)
 
-Telemetry is sampled at fixed intervals (default: 1 Hz).
+Derived: perf_per_watt
 
----
+A steady-state trim removes ramp noise from the load window.
 
-### 3.2 Telemetry Collection
+All scoring is performed on the steady-state window.
 
-Telemetry is collected using:
+3. Health Score Model (v0)
 
-- **NVML** for per-device metric access and low-level state inspection  
-- **DCGM** for data center–grade monitoring and fleet-aligned metric coverage  
+Score starts at 100.
 
-Metrics collected include:
+Penalties are explicitly defined:
 
-- GPU temperature  
-- Power draw and power limit  
-- SM clock frequency  
-- Memory clock frequency  
-- GPU utilization  
-- Memory utilization  
-- Memory usage  
-- Performance state (P-state)  
-- ECC error counters  
-- Throttle indicators  
+Thermal envelope
 
-Metric availability depends on GPU model and driver support.
+p95 > 80°C → -10
 
----
+p95 ≥ 90°C → -25
 
-## 4. Health Scoring Model
+Clock instability
 
-Health is expressed as a normalized score:
+SM clock stddev > 120 MHz → penalty up to -15
 
-```bash
-Health Score = 100 − Σ(penalties)
-```
+Efficiency instability
 
+perf/W coefficient of variation > 0.20 → penalty up to -10
 
-Each penalty corresponds to a physical reliability signal.
+Power headroom
 
-### 4.1 Penalty Categories
+Fraction of samples ≥ 98% of power limit
 
-**Thermal Headroom Penalty**  
-Applied when sustained load temperature approaches defined safe limits.
+Max penalty: -3
 
-**Clock Stability Penalty**  
-Based on increased variance of SM clock under steady load.
+Baseline-relative degradation (perf/W drop)
 
-**Performance-per-Watt Penalty**  
-Computed as deviation from baseline throughput-to-power ratio.
+Compared to baseline steady-state mean:
 
-**Throttling Penalty**  
-Applied when throttle frequency or duration increases beyond baseline.
+3% drop → -5
 
-**ECC Accumulation Penalty**  
-Rate-based penalty for increasing correctable or uncorrectable errors.
+7% drop → -15
 
-Penalties are deterministic and interpretable.
+12% drop → -30
 
----
+Classification:
 
-## 5. Drift Detection Strategy
+≥ 85 → Healthy
 
-Single metric spikes are not sufficient indicators of degradation.
+≥ 70 → Monitor
 
-Temporal analysis includes:
+≥ 50 → Degrading
 
-- Rolling mean and standard deviation  
-- Z-score anomaly detection  
-- Linear trend slope analysis  
-- Rate-of-change monitoring  
+< 50 → Decommission Candidate
 
-Degradation is defined as sustained deviation rather than isolated anomaly.
+All penalties are explainable and visible in output.
 
----
+4. Running a Real Experiment
+4.1 Run controlled test
 
-## 6. Classification Thresholds
+./run_experiment.sh
 
-| Score Range | Classification |
-|-------------|---------------|
-| 85–100      | Healthy       |
-| 70–85       | Monitor       |
-| 50–70       | Degrading     |
-| <50         | Decommission Candidate |
+Or specify output prefix:
 
-Thresholds are configurable and intended for calibration in production environments.
+OUT_PREFIX=data/run2 ./run_experiment.sh
 
----
+Artifacts produced:
 
-## 7. Validation
+data/runX_nvml.csv
+data/runX_gemm.csv
+data/runX_merged.csv
+data/runX_report.md
+data/runX_*.png
 
-### 7.1 Live Validation
+4.2 Build Baseline
 
-Telemetry capture and baseline characterization validated on:
+After 3 stable runs:
 
-- NVIDIA H200 (single instance)  
-- Controlled stress phases  
+./make_baseline.py \
+  --merged data/run1_merged.csv data/run2_merged.csv data/run3_merged.csv \
+  --phases data/run1_phases.json \
+  --out data/baseline.json
 
-This validates telemetry pipeline, baseline methodology, and scoring logic.
+Example baseline:
 
-### 7.2 Replay Mode
+perf_per_watt_mean = 0.874878
 
-Synthetic degradation datasets simulate:
+This becomes the reference envelope for degradation detection.
 
-- Gradual ECC accumulation  
-- Increased throttling frequency  
-- Declining performance-per-watt  
+5. Replay Degradation (Deterministic Simulation)
 
-Replay mode enables deterministic testing of drift detection and classification logic without requiring long-term aging data.
+Replay datasets simulate realistic degradation patterns:
 
----
+Efficiency decay (-10%)
 
-## 8. Production Considerations
+Clock frequency drop (-8%)
 
-Future production-scale extensions include:
+Thermal envelope expansion (+10°C)
 
-- Fleet-wide DCGM integration  
-- Per-GPU-model baseline distributions  
-- Automated threshold recalibration  
-- Correlation with RMA/failure labels  
-- Economic decommission modeling  
+Combined strong degradation
 
----
+Combined severe degradation
 
-## 9. Limitations
+Generate replay data:
 
-- Single-device validation (no fleet-scale calibration yet)  
-- No long-term aging dataset  
-- Environmental coupling not modeled  
-- Firmware-dependent metric variability  
-- Deterministic scoring (no predictive ML in current version)
+python3 make_replay.py --in data/run1_merged.csv --out_dir data/replay
 
----
+Run full demo:
 
-## 10. Conclusion
+./run_replay_demo.sh
 
-This project defines a structured, reproducible methodology for GPU health assessment grounded in:
+6. Example Classification Results
 
-- Controlled stress testing  
-- Baseline normalization  
-- Temporal drift detection  
-- Interpretable scoring  
+Using a baseline of:
 
-The approach provides a foundation for scalable, fleet-wide GPU reliability modeling.
+perf/W mean = 0.874878
+
+Healthy (real runs)
+
+Health Score: 97.0 / 100 → Healthy
+Notes:
+ - Power headroom penalty (3)
+
+Monitor (combined strong replay)
+
+Perf/W drop: 10.8%
+Health Score: 82.0 / 100 → Monitor
+Notes:
+ - Power headroom penalty (3)
+ - Degradation penalty (15)
+
+Degrading (combined severe replay)
+
+Perf/W drop: 16.2%
+Thermal p95: 82.8°C
+
+Health Score: 57.0 / 100 → Degrading
+Notes:
+ - Thermal penalty (10)
+ - Power headroom penalty (3)
+ - Degradation penalty (30)
+
+The system responds predictably to measured degradation.
+
+7. Design Principles
+
+Deterministic phase slicing (no heuristics if phases.json provided)
+
+No hidden ML
+
+Explicit envelope thresholds
+
+Baseline-relative drift detection
+
+Reproducible experiments
+
+Clear, inspectable artifacts
+
+This mirrors how reliability engineers operate:
+
+Measure → Define envelope → Detect drift → Escalate
+
+8. Repository Structure
+
+collector.py              # NVML telemetry collection
+stress_torch_gemm.py      # Controlled GPU workload
+run_experiment.sh         # End-to-end experiment runner
+analyze.py                # Merge + score live run
+make_baseline.py          # Build baseline from stable runs
+make_replay.py            # Generate degradation simulations
+analyze_merged.py         # Score replay datasets
+run_replay_demo.sh        # Reproduce full demo
+
+9. Future Extensions
+
+DCGM integration
+
+Prometheus exporter
+
+Fleet-level aggregation
+
+Secondary market evaluation model
+
+Longitudinal degradation tracking
+
+10. Why This Matters
+
+This repository demonstrates:
+
+Hands-on GPU telemetry analysis
+
+Stress testing methodology
+
+Time-series degradation modeling
+
+Deterministic classification design
+
+Production-oriented reliability thinking
+
+It is not a monitoring dashboard.
+
+It is a structured health assessment framework for GPU infrastructure.
+
+

@@ -104,6 +104,27 @@ def main() -> int:
         df_combo["perf_per_watt"] = df_combo["iters_per_sec"] / df_combo["power_w"]
     write_variant("degrading_combined_strong", df_combo)
 
+    # Variant E: combined severe degradation (intended to flip to "Degrading")
+    # Mechanism: throughput -30%, temp +20C, clocks -15%
+    df_sev = df.copy()
+    df_sev["temp_c"] = df_sev["temp_c"].astype(float)
+    df_sev["sm_clock_mhz"] = df_sev["sm_clock_mhz"].astype(float)
+    df_sev["iters_per_sec"] = df_sev["iters_per_sec"].astype(float)
+
+    df_sev.loc[i0:i1, "iters_per_sec"] = df_sev.loc[i0:i1, "iters_per_sec"].values * linear_ramp(load_len, 1.00, 0.70)
+    df_sev.loc[i0:i1, "temp_c"] = clamp(
+        df_sev.loc[i0:i1, "temp_c"] + linear_ramp(load_len, 0.0, 20.0),
+        lo=0.0,
+        hi=110.0,
+    )
+    df_sev.loc[i0:i1, "sm_clock_mhz"] = df_sev.loc[i0:i1, "sm_clock_mhz"].values * linear_ramp(load_len, 1.00, 0.85)
+
+    if "perf_per_watt" in df_sev.columns:
+        df_sev["perf_per_watt"] = df_sev["iters_per_sec"] / df_sev["power_w"]
+
+    write_variant("degrading_combined_severe", df_sev)
+
+
     print("[make_replay] done.")
     return 0
 

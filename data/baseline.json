@@ -1,0 +1,14 @@
+{
+  "perf_per_watt_mean": 0.8748778082827108,
+  "perf_per_watt_per_run": [
+    0.874829325365191,
+    0.8749364549909066,
+    0.874867644492035
+  ],
+  "source_runs": [
+    "data/run1_merged.csv",
+    "data/run2_merged.csv",
+    "data/run3_merged.csv"
+  ],
+  "phases": "data/run1_phases.json"
+}
