@@ -7,6 +7,8 @@ services:
     container_name: dcgm-exporter
     restart: unless-stopped
     network_mode: host
+#    command: ["-f", "/etc/dcgm-exporter/custom-counters.csv"]
+    command: ["-c", "1000", "-f", "/etc/dcgm-exporter/custom-counters.csv"]
     privileged: true
     environment:
       NVIDIA_VISIBLE_DEVICES: "all"
@@ -23,6 +25,7 @@ services:
       - /usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
       - /usr/lib64:/usr/lib64:ro
+      - ./dcgm-counters.csv:/etc/dcgm-exporter/custom-counters.csv:ro
 
   prometheus:
     image: prom/prometheus:latest
