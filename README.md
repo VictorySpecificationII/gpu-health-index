@@ -1,5 +1,7 @@
 # GPU Health Index (v0)
 
+Validated on a single NVIDIA H200 cloud instance using sustained GEMM workloads to verify telemetry collection, baseline modeling, and degradation classification behavior on current-generation GPUs.
+
 Deterministic GPU health scoring using:
 
 - NVIDIA DCGM Exporter
@@ -324,25 +326,26 @@ gpu_health_telemetry_ok
 ## 10. Health Model (v0)
 
 Score starts at 100.
+## Penalties
 
-Penalties
+| Condition                   | Penalty        | Rationale |
+|----------------------------|---------------|-----------|
+| Temp p95 > 80°C            | -10           | Sustained operation above optimal thermal envelope reduces long-term silicon reliability. |
+| Temp p95 > 90°C            | -25           | Critical thermal stress region; high likelihood of clock throttling and accelerated degradation. |
+| SM clock instability       | up to -15     | High standard deviation indicates throttling, voltage instability, or thermal oscillation. |
+| Sustained power saturation | up to -3      | Operating near power limit reduces performance headroom and may indicate cooling or workload imbalance. |
+| Perf/W drop > 3%           | -5            | Early indicator of efficiency drift versus baseline. |
+| Perf/W drop > 7%           | -15           | Material performance degradation under comparable workload. |
+| Perf/W drop > 12%          | -30           | Severe efficiency regression; possible silicon degradation or sustained throttling. |
 
-Condition	Penalty
-Temp p95 > 80C	-10
-Temp p95 > 90C	-25
-SM clock instability	up to -15
-Sustained power saturation	up to -3
-Perf/W drop > 3%	-5
-Perf/W drop > 7%	-15
-Perf/W drop > 12%	-30
+## Classification
 
-Classification
-
-Score	Classification
-≥ 85	Healthy
-≥ 70	Monitor
-≥ 50	Degrading
-< 50	Decommission Candidate
+| Score | Classification           | Interpretation |
+|-------|--------------------------|----------------|
+| ≥ 85  | Healthy                  | Operating within expected thermal, power, and efficiency envelopes. |
+| ≥ 70  | Monitor                  | Minor drift detected; observe trends and validate cooling/workload behavior. |
+| ≥ 50  | Degrading                | Sustained instability or measurable efficiency loss; intervention recommended. |
+| < 50  | Decommission Candidate   | Significant degradation; hardware inspection or retirement advised. |
 
 ## 11. Scope & Status
 
