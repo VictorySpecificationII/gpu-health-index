@@ -15,8 +15,12 @@ Deterministic GPU health scoring using:
 - Baseline-relative performance drift detection
 
 - Optional long-running health agent
+  
+- Telemetry completeness gating (returns N/A when scoring would be unreliable)
 
 This repository provides a reproducible reference implementation for evaluating GPU thermal, power, clock, and performance health.
+
+
 
 
 ## Table of Contents
@@ -105,10 +109,16 @@ Score starts at 100 and deducts based on:
 | Health Score v0   |
 +-------------------+
 
-Optional:
-
 agent.py --> exports Prometheus metrics (:9108)
 
+```
+
+```bash
+Always-on (passive):
+dcgm-exporter -> Prometheus -> agent.py -> /metrics
+
+Active probe (optional):
+run_experiment_prom.sh -> prom_export.py + stress_torch_gemm.py -> analyze.py -> baseline drift -> state.json
 ```
 
 ## 3. Requirements
@@ -326,11 +336,14 @@ gpu_health_telemetry_ok
 ## 10. Health Model (v0)
 
 Score starts at 100.
+
+If telemetry is incomplete (insufficient samples / scrape gaps), the system returns “Incomplete Telemetry” rather than emitting a misleading score.
+
 ## Penalties
 
 | Condition                   | Penalty        | Rationale |
 |----------------------------|---------------|-----------|
-| Temp p95 > 80°C            | -10           | Sustained operation above optimal thermal envelope reduces long-term silicon reliability. |
+| Temp p95 > 80°C            | -10           | Sustained operation above optimal thermal envelope increases thermal stress and risk of throttling / accelerated aging. |
 | Temp p95 > 90°C            | -25           | Critical thermal stress region; high likelihood of clock throttling and accelerated degradation. |
 | SM clock instability       | up to -15     | High standard deviation indicates throttling, voltage instability, or thermal oscillation. |
 | Sustained power saturation | up to -3      | Operating near power limit reduces performance headroom and may indicate cooling or workload imbalance. |
