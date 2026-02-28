@@ -4,9 +4,9 @@ Validated on NVIDIA H200 cloud hardware using sustained GEMM workloads to verify
 
 Deterministic GPU health scoring using:
 
-- NVIDIA DCGM Exporter
+- NVIDIA DCGM Exporter (Prometheus mode)
 
-- NVIDIA NVML
+- Direct NVML collection (CSV mode)
 
 - Prometheus (1s scrape)
 
@@ -17,6 +17,8 @@ Deterministic GPU health scoring using:
 - Optional long-running health agent
   
 - Telemetry completeness gating (returns N/A when scoring would be unreliable)
+
+Scoring logic is separated from the telemetry source. NVML in CSV mode allows deterministic offline experiments. DCGM + Prometheus enables production integration. The health model itself is telemetry-agnostic.
 
 This repository provides a reproducible reference implementation for evaluating GPU thermal, power, clock, and performance health.
 
