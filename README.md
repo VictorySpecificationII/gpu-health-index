@@ -1,6 +1,6 @@
 # GPU Health Index (v0)
 
-Validated on a single NVIDIA H200 cloud instance using sustained GEMM workloads to verify telemetry collection, baseline modeling, and degradation classification behavior on current-generation GPUs.
+Validated on NVIDIA H200 cloud hardware using sustained GEMM workloads to verify telemetry collection, baseline modeling, and degradation classification behavior on current-generation GPUs. Replay datasets are used to exercise degradation paths deterministically.
 
 Deterministic GPU health scoring using:
 
