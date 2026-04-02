@@ -105,7 +105,9 @@ typedef struct {
 
     /* Interconnects */
     int      pcie_link_gen;
+    int      pcie_link_gen_max;      /* collected at startup — compare vs pcie_link_gen   */
     int      pcie_link_width;
+    int      pcie_link_width_max;    /* collected at startup — compare vs pcie_link_width */
     uint64_t pcie_replay_count;
     uint64_t nvlink_replay_count;
     uint64_t nvlink_recovery_count;
