@@ -73,7 +73,7 @@ test: $(TEST_BINS)
 	fi
 
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(TEST_OBJS) | $(BUILDDIR)
-	$(CC) $(CFLAGS) -I$(SRCDIR) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $^ $(LDFLAGS)
 
 # ---- Install ----------------------------------------------------------------
 
