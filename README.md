@@ -1,4 +1,4 @@
-# gpu-health-exporter
+# gpu-health-index
 
 A production-grade GPU health monitoring exporter written in C. Exposes 55+
 Prometheus metrics per GPU via a `/metrics` endpoint on port 9108.
