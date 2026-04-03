@@ -19,7 +19,7 @@
 - [ ] `http.c` — `WITH_TLS=1` build path: mbedTLS server setup, cert/key load from config (`tls_cert_path`, `tls_key_path`), wrap each accepted fd before request dispatch
 
 ### Deployment artifacts
-- [ ] `deploy/gpu-health.service` — systemd unit (bare metal)
+- [x] `deploy/gpu-health.service` — systemd unit (bare metal)
 - [ ] `deploy/gpu-health.conf.example` — fully annotated config file
 - [ ] `deploy/k8s/daemonset.yaml`
 - [ ] `deploy/k8s/configmap-baseline.yaml`

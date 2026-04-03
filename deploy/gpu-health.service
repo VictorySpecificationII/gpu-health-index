@@ -1,0 +1,61 @@
+[Unit]
+Description=GPU Health Exporter
+Documentation=https://github.com/your-org/gpu-health-exporter
+After=network.target nv-hostengine.service
+Requires=nv-hostengine.service
+
+# nv-hostengine is the DCGM daemon. It is operationally required — if it
+# stops, this unit stops with it. NVML alone gives an incomplete health
+# picture: board power, energy, memory bandwidth, NVLink, XID errors, and
+# violation counters all come from DCGM.
+
+[Service]
+Type=notify
+
+ExecStart=/usr/local/bin/gpu-health-exporter -c /etc/gpu-health/gpu-health.conf
+
+# systemd creates /var/run/gpu-health (mode 0755) before ExecStart and
+# removes it on stop. Matches the default state_dir in the config.
+RuntimeDirectory=gpu-health
+RuntimeDirectoryMode=0755
+
+# Config directory — must exist before starting.
+# Create with: sudo mkdir -p /etc/gpu-health
+# See deploy/gpu-health.conf.example for annotated options.
+
+# Restart behaviour: restart on any non-clean exit. The parent process
+# monitors and respawns the HTTP child internally — if the parent itself
+# exits, systemd restarts the whole unit.
+Restart=on-failure
+RestartSec=5s
+
+# StartupTimeout: the exporter sends READY=1 after the first successful poll
+# on all GPUs. Default first-poll deadline is nvml_timeout_ms * 2 = 10s.
+# 60s gives generous margin for slow driver or DCGM init on large GPU counts.
+TimeoutStartSec=60s
+
+# StopTimeout: allow the parent to stop poll threads, SIGTERM the HTTP child,
+# and flush the final state file before systemd sends SIGKILL.
+TimeoutStopSec=10s
+
+# Logs go to stderr; journald captures them automatically.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gpu-health
+
+# Security hardening — NOTE: procpriv.c is currently Phase 1 stubs
+# (PR_SET_NO_NEW_PRIVS only). Full capability drop + seccomp is Phase 2.
+# Once implemented, tighten to:
+#   User=gpu-health
+#   Group=gpu-health (must be in 'render' or 'video' group for /dev/nvidia*)
+#   CapabilityBoundingSet=CAP_DAC_OVERRIDE
+#   AmbientCapabilities=CAP_DAC_OVERRIDE
+#   NoNewPrivileges=yes
+#   PrivateTmp=yes
+#   ProtectSystem=strict
+#   ProtectHome=yes
+#   ReadWritePaths=/var/run/gpu-health
+# Until then the service runs as root.
+
+[Install]
+WantedBy=multi-user.target
