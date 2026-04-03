@@ -9,10 +9,8 @@
  *   Receiver thread  — drains IPC messages, updates g_slots[] under g_lock.
  *   Main thread      — HTTP accept loop; renders metrics from a locked copy.
  *
- * Known gaps (to be closed when types.h is extended):
- *   - gpu_health_collector_errors_total: not in gpu_snapshot_t.
+ * Known gaps:
  *   - ECC volatile counters: not forwarded in snapshot (aggregate + rate are).
- *   - gpu_dcgm_available: inferred from NaN check on mem_bw_util_pct.
  */
 
 #include <arpa/inet.h>
@@ -721,17 +719,12 @@ static size_t render_metrics(char *buf, size_t cap) {
     /* 11. Exporter operational state                                      */
     /* ------------------------------------------------------------------ */
 
-    /*
-     * gpu_dcgm_available: ground truth lives in exporter_t.dcgm_available
-     * (parent only).  Inferred here from mem_bw_util_pct being NaN.
-     * Requires all GPUs to agree (DCGM connects once for all GPUs).
-     */
     M_HEADER("gpu_dcgm_available", "gauge",
-             "1 if DCGM is connected and responding (inferred from DCGM-only fields)");
+             "1 if DCGM is connected and responding");
     for (int i = 0; i < n; i++) {
         if (!slots[i].received) continue;
         M_GAUGE_I("gpu_dcgm_available", slots[i].snap.serial,
-                  !isnan(slots[i].snap.mem_bw_util_pct));
+                  slots[i].snap.dcgm_available);
     }
 
     M_HEADER("gpu_health_last_poll_timestamp", "gauge",
@@ -756,6 +749,14 @@ static size_t render_metrics(char *buf, size_t cap) {
         if (!slots[i].received) continue;
         M_GAUGE_I("gpu_available", slots[i].snap.serial,
                   slots[i].snap.gpu_available);
+    }
+
+    M_HEADER("gpu_health_collector_errors_total", "counter",
+             "Cumulative NVML call errors for this GPU");
+    for (int i = 0; i < n; i++) {
+        if (!slots[i].received) continue;
+        M_COUNTER_U64("gpu_health_collector_errors_total", slots[i].snap.serial,
+                      slots[i].snap.collector_errors_total);
     }
 
     free(slots);

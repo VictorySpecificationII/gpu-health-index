@@ -20,7 +20,6 @@ void snapshot_update(gpu_ctx_t *ctx,
                      const gpu_score_result_t *score,
                      int dcgm_available)
 {
-    (void)dcgm_available;   /* informational — not needed for snapshot fields */
 
     gpu_snapshot_t s;
     memset(&s, 0, sizeof(s));
@@ -122,9 +121,11 @@ void snapshot_update(gpu_ctx_t *ctx,
     s.fan_speed_pct         = st->fan_speed_pct;
 
     /* --- Exporter health --------------------------------------------------- */
-    s.last_poll_ms   = time_now_ms();
-    s.gpu_present    = ctx->gpu_present;
-    s.gpu_available  = ctx->gpu_available;
+    s.last_poll_ms          = time_now_ms();
+    s.gpu_present           = ctx->gpu_present;
+    s.gpu_available         = ctx->gpu_available;
+    s.dcgm_available        = dcgm_available;
+    s.collector_errors_total = ctx->collector_errors_total;
 
     /* Publish under snapshot_mutex */
     pthread_mutex_lock(&ctx->snapshot_mutex);

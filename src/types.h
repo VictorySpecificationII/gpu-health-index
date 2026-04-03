@@ -282,9 +282,11 @@ typedef struct {
     int                 fan_speed_pct;
 
     /* Exporter state */
-    uint64_t            last_poll_ms;    /* wall-clock epoch ms of last successful poll */
-    int                 gpu_present;     /* 0 if device disappeared mid-run */
-    int                 gpu_available;   /* 0 if NVML failing above threshold */
+    uint64_t            last_poll_ms;         /* wall-clock epoch ms of last successful poll */
+    int                 gpu_present;          /* 0 if device disappeared mid-run */
+    int                 gpu_available;        /* 0 if NVML failing above threshold */
+    int                 dcgm_available;       /* 1 if DCGM connected and responding */
+    uint64_t            collector_errors_total; /* cumulative NVML call errors for this GPU */
 } gpu_snapshot_t;
 
 typedef struct {
