@@ -7,7 +7,7 @@
 
 - [ ] `gpu_snapshot_t` missing `collector_errors_total` — add field to `types.h`, wire from `gpu_ctx_t.collector_errors_total` in `snapshot.c`, render in `http.c`
 - [ ] ECC volatile counters (SBE/DBE volatile) not forwarded in snapshot — only aggregate + rate available; add fields to `gpu_snapshot_t` if per-scrape volatile count is needed
-- [ ] `gpu_dcgm_available` in `http.c` is inferred from `isnan(mem_bw_util_pct)` — add explicit `dcgm_available` field to `gpu_snapshot_t`; set it in `snapshot_update()` from the `dcgm_available` param that is currently discarded
+- [ ] `gpu_dcgm_available` in `http.c` is inferred from `isnan(mem_bw_util_pct)` — correctness gap: a field that reads NaN for other reasons would silently suppress the DCGM alert signal. Add explicit `dcgm_available` field to `gpu_snapshot_t`; set it in `snapshot_update()` from the `dcgm_available` param that is currently discarded. DCGM is operationally required on this fleet — this metric must be trustworthy.
 
 ### Security hardening
 > `procpriv.c` is stubs only (`PR_SET_NO_NEW_PRIVS`). Full implementation below.

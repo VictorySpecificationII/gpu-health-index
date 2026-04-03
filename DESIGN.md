@@ -77,9 +77,15 @@ UUID retained in gpu_info gauge for cross-referencing with existing tooling.
 ### 2.4 Telemetry Sources
 
 NVML: required. Loaded via dlopen at runtime — no hard link dependency.
-DCGM: optional. Loaded via dlopen at runtime. Detected at startup, graceful
-degradation to NVML-only if unavailable. DCGM daemon assumed to be deployed
-on target fleet.
+Captures compute, thermal, memory capacity, ECC, PCIe, and throttle state.
+NVML alone is an incomplete health picture.
+
+DCGM: required operationally. Loaded via dlopen at runtime. Adds board power,
+energy, memory bandwidth utilization, NVLink counters, XID errors, and
+power/thermal violation time — signals with no NVML equivalent. DCGM daemon
+is deployed on all target hosts. The binary soft-fails if DCGM is absent
+(fields emit NaN, gpu_dcgm_available 0), but this is an anomaly state, not
+an acceptable degraded mode.
 
 All NVML and DCGM calls go through a vtable (function pointer struct).
 In production: vtable populated via dlopen/dlsym.
@@ -728,7 +734,7 @@ Key failure modes and mitigations designed in:
 | Failure | Mitigation |
 |---------|-----------|
 | NVML call hang | Watchdog timeout per poll thread |
-| DCGM unavailable | Runtime detection, graceful NVML-only fallback |
+| DCGM unavailable | Runtime detection, graceful NVML-only fallback; gpu_dcgm_available 0 — treat as alert condition |
 | GPU disappears mid-run | Per-poll error handling, gpu_present 0, no exit |
 | HTTP blocks on slow client | SO_SNDTIMEO bounds wait |
 | Baseline file corrupt | Validation on load, fall back to no-baseline mode |
