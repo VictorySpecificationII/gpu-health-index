@@ -35,7 +35,7 @@ static void rm_tmpdir(const char *path)
     /* We only ever put serial-named files in our test dirs, so this is safe */
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", path);
-    (void)system(cmd);
+    int rc = system(cmd); (void)rc;
 }
 
 /* =========================================================================

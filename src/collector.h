@@ -84,6 +84,10 @@ typedef struct {
     int              num_gpus;
     gpu_ctx_t       *gpus;                 /* heap array of num_gpus entries */
 
+    /* dlopen handles — stored here so child can close them after fork */
+    void            *nvml_dl;             /* handle from nvml_load()      */
+    void            *dcgm_dl;             /* handle from dcgm_load(); NULL if unavailable */
+
     /* Socketpair for IPC with HTTP child */
     int              parent_fd;            /* parent writes snapshots here */
     int              child_fd;             /* child reads from here */
