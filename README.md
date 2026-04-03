@@ -187,33 +187,26 @@ tls_key_path                =
 
 ### Bare metal (systemd)
 
-```ini
-# /etc/systemd/system/gpu-health.service
-[Unit]
-Description=GPU Health Exporter
-After=network.target
-
-[Service]
-Type=notify
-ExecStart=/usr/local/bin/gpu-health-exporter -c /etc/gpu-health/gpu-health.conf
-Restart=on-failure
-RestartSec=5s
-RuntimeDirectory=gpu-health
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-```
+The unit file is at [deploy/gpu-health.service](deploy/gpu-health.service).
 
 ```sh
-sudo install -Dm755 build/gpu-health-exporter /usr/local/bin/
+# Create config directory and drop in your config
+sudo mkdir -p /etc/gpu-health
+sudo cp deploy/gpu-health.conf.example /etc/gpu-health/gpu-health.conf
+
+# Install binary + unit file
+sudo make install PREFIX=/usr/local
+
+# Enable and start
 sudo systemctl daemon-reload
 sudo systemctl enable --now gpu-health
 ```
 
-`RuntimeDirectory=gpu-health` has systemd create `/var/run/gpu-health`
-automatically. The exporter sends `READY=1` via `sd_notify` after all GPUs
-complete their first poll — no library dependency, raw Unix socket.
+Key unit properties:
+- `Requires=nv-hostengine.service` — if the DCGM daemon stops, this unit stops with it
+- `RuntimeDirectory=gpu-health` — systemd creates `/var/run/gpu-health` automatically
+- `TimeoutStartSec=60s` — the exporter sends `READY=1` after the first successful poll on all GPUs; 60s gives margin for driver and DCGM init on large GPU counts
+- `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
 
 ### Kubernetes (DaemonSet)
 
