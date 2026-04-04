@@ -80,6 +80,9 @@ $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(TEST_OBJS) | $(BUILDDIR)
 install: $(BUILDDIR)/$(BINARY)
 	install -Dm755 $(BUILDDIR)/$(BINARY) $(PREFIX)/bin/$(BINARY)
 	install -Dm644 deploy/gpu-health.service /etc/systemd/system/gpu-health.service
+	install -d /etc/gpu-health/baseline
+	test -f /etc/gpu-health/gpu-health.conf || \
+		install -Dm644 deploy/gpu-health.conf.example /etc/gpu-health/gpu-health.conf
 
 # ---- Clean ------------------------------------------------------------------
 
