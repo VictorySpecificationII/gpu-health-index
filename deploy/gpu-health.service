@@ -1,6 +1,6 @@
 [Unit]
 Description=GPU Health Exporter
-Documentation=https://github.com/your-org/gpu-health-exporter
+Documentation=https://github.com/VictorySpecificationII/gpu-health-index
 After=network.target nv-hostengine.service
 Requires=nv-hostengine.service
 
