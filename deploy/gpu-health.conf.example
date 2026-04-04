@@ -1,0 +1,340 @@
+# gpu-health.conf.example
+#
+# Annotated configuration for gpu-health-exporter.
+# Copy to /etc/gpu-health/gpu-health.conf and adjust as needed.
+#
+# Syntax:
+#   key = value
+#   Lines beginning with # are comments. Blank lines are ignored.
+#   Keys are case-sensitive (lowercase). Values are trimmed of whitespace.
+#
+# Precedence (lowest to highest):
+#   1. Compiled-in defaults (shown below)
+#   2. This config file
+#   3. Environment variables: GPU_HEALTH_<KEY> (uppercase, e.g. GPU_HEALTH_LISTEN_PORT)
+#
+# Unknown keys are logged as warnings and ignored (forward-compatible).
+# Invalid values (out of range, wrong type) cause a hard startup failure.
+
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+# Directory for runtime state files (last-known-good snapshot, per-GPU JSON).
+# systemd creates this directory automatically via RuntimeDirectory=gpu-health
+# when using the provided unit file. Must be writable by the exporter process.
+# Range: any valid path
+state_dir = /var/run/gpu-health
+
+# Directory where baseline files are stored and loaded from.
+# Baselines capture the GPU's known-good performance/W reference value.
+# Must be writable for baseline establishment; readable for baseline loading.
+# Create with: sudo mkdir -p /etc/gpu-health/baseline
+# Range: any valid path
+baseline_dir = /etc/gpu-health/baseline
+
+# IP address the HTTP server binds to.
+# Use 0.0.0.0 to listen on all interfaces, or 127.0.0.1 to restrict to localhost.
+# Range: any valid IP address string
+listen_addr = 0.0.0.0
+
+# TCP port for the HTTP metrics endpoint.
+# Default 9108 is within the Prometheus unofficial exporter range.
+# Endpoints: /metrics (Prometheus), /ready (readiness), /live (liveness)
+# Range: 1–65535
+listen_port = 9108
+
+
+# ---------------------------------------------------------------------------
+# Polling
+# ---------------------------------------------------------------------------
+
+# How often the poll thread samples each GPU, in seconds.
+# Lower values increase telemetry resolution but add NVML/DCGM call overhead.
+# The scoring window (window_s) must be large enough to hold a useful number
+# of samples at this interval.
+# Range: 1–60
+poll_interval_s = 1
+
+# Duration of the sliding window used for ring-buffer statistics, in seconds.
+# Percentiles (temp_p95, hbm_temp_p95), clock std-dev, power saturation, and
+# ECC rates are all computed over this window.
+# At poll_interval_s=1, a 300s window holds 300 samples.
+# Range: 60–3600
+window_s = 300
+
+# How often the in-memory GPU state is flushed to disk (state_dir), in seconds.
+# The state file is used for continuity across restarts — it is not the primary
+# data path. Write frequency does not affect /metrics scrape freshness.
+# Range: 1–3600
+state_write_interval_s = 30
+
+
+# ---------------------------------------------------------------------------
+# Telemetry completeness gate
+# ---------------------------------------------------------------------------
+#
+# Before computing a score, the exporter checks that the ring buffer contains
+# enough valid data. If the gate fails, telemetry_ok=0 and the score reflects
+# incomplete data. Three conditions must all pass:
+#   1. Sample count >= min_samples_absolute
+#   2. Filled fraction >= min_sample_ratio
+#   3. Median inter-sample gap <= max_median_step_s
+#
+# The defaults are conservative: 80% fill, at least 10 samples, median step
+# no wider than 2.5× the poll interval. Relax these only if you have a reason.
+
+# Minimum fraction of ring buffer slots that must contain valid samples.
+# At window_s=300, poll_interval_s=1: 300 slots, threshold = 240 samples.
+# Range: 0.0–1.0
+min_sample_ratio = 0.80
+
+# Maximum allowed median inter-sample interval, in seconds.
+# Detects poll stalls or clock jumps. Should be ~2–3× poll_interval_s.
+# Range: 0.1–30.0
+max_median_step_s = 2.5
+
+# Minimum number of samples required regardless of min_sample_ratio.
+# Prevents a score being emitted on the very first few samples after startup.
+# Range: 1–1000
+min_samples_absolute = 10
+
+
+# ---------------------------------------------------------------------------
+# Scoring — thermal
+# ---------------------------------------------------------------------------
+#
+# Thresholds apply to the p95 temperature computed over the window.
+# warn_c must be strictly less than bad_c (validated at startup).
+# Exceeding bad_c scores the GPU as BAD (score = 0.0).
+# Between warn_c and bad_c, a proportional penalty is applied.
+
+# GPU core temperature (°C) at which a thermal penalty begins.
+# A100/H100 sustained safe range is typically ≤80°C core.
+# Range: 50.0–120.0
+temp_p95_warn_c = 80.0
+
+# GPU core temperature (°C) at which the thermal penalty is full (GPU = BAD).
+# Range: 50.0–120.0
+temp_p95_bad_c = 90.0
+
+# HBM temperature (°C) at which an HBM thermal penalty begins.
+# HBM runs hotter than core by design; NVIDIA's safe limit is ~95°C.
+# Range: 50.0–120.0
+hbm_temp_p95_warn_c = 85.0
+
+# HBM temperature (°C) at which the HBM thermal penalty is full.
+# Range: 50.0–120.0
+hbm_temp_p95_bad_c = 95.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring — clocks
+# ---------------------------------------------------------------------------
+
+# SM clock standard deviation (MHz) over the window above which a clock
+# instability penalty is applied. High std-dev indicates throttling or
+# erratic boost behaviour. A stable GPU under load should be < 50 MHz.
+# Range: 1.0–1000.0
+clk_std_warn_mhz = 120.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring — power
+# ---------------------------------------------------------------------------
+
+# Fraction of the GPU's power limit above which sustained operation is
+# considered to be at full power saturation. Used to compute power_saturation_frac.
+# 0.98 = 98% of TDP — at this level the GPU is thermally and electrically stressed.
+# Range: 0.5–1.0
+power_high_ratio = 0.98
+
+# Maximum score penalty (points) applied for sustained power saturation.
+# Penalty scales linearly from 0 to power_penalty_max as power_saturation_frac
+# goes from 0 to 1. Kept small by default — power saturation is expected
+# under training workloads; it is a risk factor, not a fault.
+# Range: 0.0–100.0
+power_penalty_max = 3.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring — memory (ECC and retired pages)
+# ---------------------------------------------------------------------------
+
+# SBE (single-bit error) rate per hour above which a memory penalty is applied.
+# SBEs are corrected by ECC hardware; a low rate is normal. A sustained high
+# rate signals DRAM degradation. Default is 100/hour — aggressive correction.
+# Range: 0.0–1e9
+ecc_sbe_rate_warn_per_hour = 100.0
+
+# Score penalty applied when SBE rate exceeds ecc_sbe_rate_warn_per_hour.
+# SBEs are correctable; keep the penalty moderate.
+# Range: 0.0–100.0
+ecc_sbe_penalty = 5.0
+
+# Score penalty applied when any DBE (double-bit, uncorrectable) error occurs
+# within the scoring window. DBEs are not correctable and indicate serious
+# DRAM failure. This penalty should be high enough to trigger an alert.
+# Range: 0.0–100.0
+ecc_dbe_penalty = 25.0
+
+# Number of retired memory pages (SBE cause) at which a warning penalty begins.
+# Page retirement is permanent and indicates accumulated DRAM cell failures.
+# Range: 0–10000
+retired_pages_warn = 1
+
+# Number of retired memory pages (SBE cause) at which the GPU is scored BAD.
+# Range: 0–10000
+retired_pages_bad = 10
+
+# Score penalty for retired page count between retired_pages_warn and retired_pages_bad.
+# Range: 0.0–100.0
+retired_pages_pen_warn = 5.0
+
+# Score penalty when retired pages >= retired_pages_bad.
+# Range: 0.0–100.0
+retired_pages_pen_bad = 15.0
+
+# Score penalty when any row remapper failure is detected.
+# Row remap failures on H100/H200 indicate HBM3 cell exhaustion — a serious
+# fault that typically requires RMA.
+# Range: 0.0–100.0
+row_remap_failure_penalty = 25.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring — PCIe link
+# ---------------------------------------------------------------------------
+#
+# The exporter records the maximum negotiated gen and width at startup
+# (from NVML's current-link query on a warm system). Any subsequent degradation
+# from those maxima triggers the penalties below.
+
+# Score penalty when the active PCIe generation is below the observed maximum.
+# Gen degradation (e.g. Gen5 → Gen4) halves bandwidth and signals a link fault.
+# Range: 0.0–100.0
+pcie_link_degraded_penalty = 10.0
+
+# Score penalty when the active PCIe link width is below the observed maximum.
+# Width degradation (e.g. x16 → x8) also halves bandwidth.
+# Range: 0.0–100.0
+pcie_width_degraded_penalty = 15.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring — perf/W drift (probe-based)
+# ---------------------------------------------------------------------------
+#
+# Requires the gpu_health_probe binary (Phase 2). If no probe result is
+# available (probe_available=0 or probe_stale=1), perf/W drift is not scored.
+# Thresholds are fractional drops from the baseline perf/W value.
+# warn < bad < severe must hold (validated at startup).
+
+# Fractional perf/W drop at which a warning penalty begins. 0.03 = 3%.
+# Range: 0.0–1.0
+perf_drop_warn = 0.03
+
+# Fractional perf/W drop at which a bad penalty applies. 0.07 = 7%.
+# Range: 0.0–1.0
+perf_drop_bad = 0.07
+
+# Fractional perf/W drop at which a severe penalty applies. 0.12 = 12%.
+# Range: 0.0–1.0
+perf_drop_severe = 0.12
+
+# Score penalty for perf/W drop between warn and bad thresholds.
+# Range: 0.0–100.0
+perf_drop_pen_warn = 5.0
+
+# Score penalty for perf/W drop between bad and severe thresholds.
+# Range: 0.0–100.0
+perf_drop_pen_bad = 15.0
+
+# Score penalty for perf/W drop above the severe threshold.
+# Range: 0.0–100.0
+perf_drop_pen_severe = 30.0
+
+
+# ---------------------------------------------------------------------------
+# Probe scheduling
+# ---------------------------------------------------------------------------
+#
+# The probe binary (gpu_health_probe) runs a cuBLAS BF16 GEMM and records
+# perf/W. These settings control how often it runs and how long its result
+# remains valid. Probe binary is Phase 2 — these settings are parsed but
+# have no effect until the probe binary is present.
+
+# How often the probe is scheduled, in seconds. Default: once per day.
+# Range: 60–604800 (1 minute to 7 days)
+probe_interval_s = 86400
+
+# How long a probe result is considered fresh, in seconds.
+# Must be >= probe_interval_s. Default: 1.5 days (allows one missed run).
+# Range: 60–604800
+probe_ttl_s = 129600
+
+
+# ---------------------------------------------------------------------------
+# NVML settings
+# ---------------------------------------------------------------------------
+
+# Timeout for individual NVML API calls, in milliseconds.
+# Increase on systems with slow driver init or many GPUs.
+# SystemD TimeoutStartSec accounts for this: first poll deadline ≈ nvml_timeout_ms × 2.
+# Range: 100–60000
+nvml_timeout_ms = 5000
+
+# Number of consecutive NVML errors before the GPU is marked unavailable
+# and its poll thread backs off to nvml_retry_interval_s.
+# Range: 1–1000
+nvml_error_threshold = 10
+
+# Number of hard NVML errors (e.g. device not found, driver crash) before
+# the GPU is immediately marked unavailable, regardless of nvml_error_threshold.
+# Range: 1–100
+nvml_hard_error_threshold = 1
+
+# How long to wait before retrying NVML after the error threshold is hit,
+# in seconds. During this interval, /metrics will report gpu_available=0.
+# Range: 1–3600
+nvml_retry_interval_s = 60
+
+
+# ---------------------------------------------------------------------------
+# DCGM settings
+# ---------------------------------------------------------------------------
+#
+# DCGM (Data Center GPU Manager) is operationally required on this fleet.
+# gpu_dcgm_available=0 in /metrics indicates a DCGM connectivity fault and
+# should be treated as an alert condition, not a degraded-but-acceptable state.
+# NVML alone cannot provide board power, memory bandwidth, NVLink counters,
+# XID errors, or violation counters.
+
+# Timeout for individual DCGM API calls, in milliseconds.
+# Range: 100–60000
+dcgm_timeout_ms = 5000
+
+# Number of consecutive DCGM errors before dcgm_available is set to 0.
+# Range: 1–1000
+dcgm_error_threshold = 10
+
+# How long to wait before retrying DCGM after the error threshold is hit,
+# in seconds.
+# Range: 1–3600
+dcgm_retry_interval_s = 60
+
+
+# ---------------------------------------------------------------------------
+# TLS (Phase 2 — not yet implemented)
+# ---------------------------------------------------------------------------
+#
+# When built with WITH_TLS=1, the HTTP server wraps accepted connections
+# with mbedTLS. Leave empty to use plain HTTP (current default).
+# Both paths must be set together or both left empty.
+
+# Path to the PEM-encoded TLS certificate.
+# tls_cert_path = /etc/gpu-health/tls/server.crt
+
+# Path to the PEM-encoded TLS private key.
+# tls_key_path = /etc/gpu-health/tls/server.key
