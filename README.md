@@ -190,11 +190,7 @@ tls_key_path                =
 The unit file is at [deploy/gpu-health.service](deploy/gpu-health.service).
 
 ```sh
-# Create config directory and drop in your config
-sudo mkdir -p /etc/gpu-health
-sudo cp deploy/gpu-health.conf.example /etc/gpu-health/gpu-health.conf
-
-# Install binary + unit file
+# Install binary, unit file, config directory, and example config
 sudo make install PREFIX=/usr/local
 
 # Enable and start
