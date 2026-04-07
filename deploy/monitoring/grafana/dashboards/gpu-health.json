@@ -1,0 +1,539 @@
+{
+  "title": "GPU Health",
+  "uid": "gpu-health-v1",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "serial",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(gpu_present, serial)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Health Score",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_health_score{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "minVizValue": 0,
+        "maxVizValue": 100,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",    "value": 0  },
+            { "color": "orange", "value": 50 },
+            { "color": "yellow", "value": 70 },
+            { "color": "green",  "value": 85 }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Classification",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_health_class{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",    "value": 0 },
+            { "color": "green",  "value": 1 },
+            { "color": "yellow", "value": 2 },
+            { "color": "orange", "value": 3 },
+            { "color": "red",    "value": 4 }
+          ]
+        },
+        "mappings": [
+          {
+            "type": "value",
+            "options": {
+              "0": { "text": "N/A" },
+              "1": { "text": "Healthy" },
+              "2": { "text": "Monitor" },
+              "3": { "text": "Degrading" },
+              "4": { "text": "Decommission" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Telemetry OK",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 3, "w": 2, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_telemetry_ok{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",   "value": 0 },
+            { "color": "green", "value": 1 }
+          ]
+        },
+        "mappings": [
+          {
+            "type": "value",
+            "options": {
+              "0": { "text": "NOT OK" },
+              "1": { "text": "OK" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "title": "DCGM Available",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 3, "w": 2, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_dcgm_available{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",   "value": 0 },
+            { "color": "green", "value": 1 }
+          ]
+        },
+        "mappings": [
+          {
+            "type": "value",
+            "options": {
+              "0": { "text": "ANOMALY" },
+              "1": { "text": "Connected" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "title": "GPU Present",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 2, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_present{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",   "value": 0 },
+            { "color": "green", "value": 1 }
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Collector Errors",
+      "type": "stat",
+      "gridPos": { "x": 10, "y": 0, "w": 2, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_health_collector_errors_total{serial=~\"$serial\"}",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green",  "value": 0 },
+            { "color": "red",    "value": 1 }
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "PCIe Gen / Width",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 3, "w": 4, "h": 3 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_pcie_link_gen{serial=~\"$serial\"}",
+          "legendFormat": "Gen {{serial}}"
+        },
+        {
+          "expr": "gpu_pcie_link_width{serial=~\"$serial\"}",
+          "legendFormat": "x{{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 10,
+      "title": "GPU Temperature",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_temp_celsius{serial=~\"$serial\"}",
+          "legendFormat": "Core {{serial}}"
+        },
+        {
+          "expr": "gpu_temp_p95_celsius{serial=~\"$serial\"}",
+          "legendFormat": "Core p95 {{serial}}"
+        },
+        {
+          "expr": "gpu_hbm_temp_celsius{serial=~\"$serial\"}",
+          "legendFormat": "HBM {{serial}}"
+        },
+        {
+          "expr": "gpu_hbm_temp_p95_celsius{serial=~\"$serial\"}",
+          "legendFormat": "HBM p95 {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": 0  },
+              { "color": "yellow", "value": 80 },
+              { "color": "red",    "value": 90 }
+            ]
+          },
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Power",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_power_watts{serial=~\"$serial\"}",
+          "legendFormat": "GPU Power {{serial}}"
+        },
+        {
+          "expr": "gpu_board_power_watts{serial=~\"$serial\"}",
+          "legendFormat": "Board Power {{serial}}"
+        },
+        {
+          "expr": "gpu_power_limit_watts{serial=~\"$serial\"}",
+          "legendFormat": "Power Limit {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "SM Clock",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_sm_clock_mhz{serial=~\"$serial\"}",
+          "legendFormat": "SM Clock {{serial}}"
+        },
+        {
+          "expr": "gpu_sm_clock_std_mhz{serial=~\"$serial\"}",
+          "legendFormat": "Clock StdDev {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "megahertz",
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Memory Bandwidth Utilization",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_memory_bandwidth_utilization_ratio{serial=~\"$serial\"}",
+          "legendFormat": "BW Util {{serial}}"
+        },
+        {
+          "expr": "gpu_utilization_gpu_ratio{serial=~\"$serial\"}",
+          "legendFormat": "GPU Util {{serial}}"
+        },
+        {
+          "expr": "gpu_utilization_memory_ratio{serial=~\"$serial\"}",
+          "legendFormat": "Mem Ctrl Util {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Memory Usage",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_memory_used_bytes{serial=~\"$serial\"}",
+          "legendFormat": "Used {{serial}}"
+        },
+        {
+          "expr": "gpu_memory_total_bytes{serial=~\"$serial\"}",
+          "legendFormat": "Total {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Performance State",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_pstate{serial=~\"$serial\"}",
+          "legendFormat": "PState {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 4 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Fault Indicators",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_ecc_sbe_rate_per_hour{serial=~\"$serial\"}",
+          "legendFormat": "SBE Rate/hr",
+          "instant": true
+        },
+        {
+          "expr": "gpu_ecc_dbe_in_window{serial=~\"$serial\"}",
+          "legendFormat": "DBE in Window",
+          "instant": true
+        },
+        {
+          "expr": "gpu_retired_pages_sbe{serial=~\"$serial\"}",
+          "legendFormat": "Retired Pages (SBE)",
+          "instant": true
+        },
+        {
+          "expr": "gpu_retired_pages_dbe{serial=~\"$serial\"}",
+          "legendFormat": "Retired Pages (DBE)",
+          "instant": true
+        },
+        {
+          "expr": "gpu_row_remap_failures{serial=~\"$serial\"}",
+          "legendFormat": "Row Remap Failures",
+          "instant": true
+        },
+        {
+          "expr": "gpu_xid_errors_total{serial=~\"$serial\"}",
+          "legendFormat": "XID Errors",
+          "instant": true
+        },
+        {
+          "expr": "gpu_pcie_replay_total{serial=~\"$serial\"}",
+          "legendFormat": "PCIe Replays",
+          "instant": true
+        }
+      ],
+      "options": {
+        "sortBy": [{ "displayName": "serial" }]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red",   "value": 1 }
+            ]
+          },
+          "custom": {
+            "displayMode": "color-background-solid"
+          }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Throttle Flags",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 33, "w": 24, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_throttle_sw_power_cap{serial=~\"$serial\"}",
+          "legendFormat": "SW Power Cap {{serial}}"
+        },
+        {
+          "expr": "gpu_throttle_hw_slowdown{serial=~\"$serial\"}",
+          "legendFormat": "HW Slowdown {{serial}}"
+        },
+        {
+          "expr": "gpu_throttle_hw_power_brake{serial=~\"$serial\"}",
+          "legendFormat": "HW Power Brake {{serial}}"
+        },
+        {
+          "expr": "gpu_throttle_sw_thermal{serial=~\"$serial\"}",
+          "legendFormat": "SW Thermal {{serial}}"
+        },
+        {
+          "expr": "gpu_throttle_hw_thermal{serial=~\"$serial\"}",
+          "legendFormat": "HW Thermal {{serial}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": 0 },
+            { "color": "red",   "value": 1 }
+          ]
+        },
+        "mappings": [
+          {
+            "type": "value",
+            "options": {
+              "0": { "text": "OK" },
+              "1": { "text": "ACTIVE" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "title": "Health Score History",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 37, "w": 24, "h": 7 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "gpu_health_score{serial=~\"$serial\"}",
+          "legendFormat": "Score {{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": 0  },
+              { "color": "orange", "value": 50 },
+              { "color": "yellow", "value": 70 },
+              { "color": "green",  "value": 85 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "thresholdsStyle": { "mode": "line" }
+          }
+        }
+      }
+    }
+  ]
+}
