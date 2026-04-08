@@ -164,20 +164,24 @@ static int spawn_http_child(exporter_t *exp) {
         if (exp->parent_fd >= 0)
             close(exp->parent_fd);
 
-        /*
-         * Shut down NVML and DCGM — the child must not use these.
-         * After fork() there are no poll threads in the child (POSIX:
-         * only the calling thread is duplicated), so it is safe to call
-         * Shutdown() without locks.
-         */
-        if (exp->nvml.Shutdown)
-            exp->nvml.Shutdown();
-        nvml_unload(exp->nvml_dl);
 
-        if (exp->dcgm_available) {
-            dcgm_teardown(&exp->dcgm, exp->dcgm_handle);
-            dcgm_unload(exp->dcgm_dl);
-        }
+        /*
+         * Do NOT call NVML/DCGM teardown in the forked child.
+         *
+         * These libraries were initialized in the parent before fork().
+         * Their internal state is not guaranteed to be fork-safe, and
+         * nvmlShutdown() may segfault in the child.
+         *
+         * The HTTP child must never use NVML/DCGM; ownership and teardown
+         * remain entirely in the parent.
+         */
+        memset(&exp->nvml, 0, sizeof(exp->nvml));
+        exp->nvml_dl = NULL;
+
+        memset(&exp->dcgm, 0, sizeof(exp->dcgm));
+        exp->dcgm_dl = NULL;
+        exp->dcgm_handle = 0;
+        exp->dcgm_available = 0;
 
         /* Drop capabilities and install seccomp (Phase 1: PR_SET_NO_NEW_PRIVS). */
         procpriv_child_setup();
