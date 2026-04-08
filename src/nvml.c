@@ -85,8 +85,8 @@ int nvml_load(nvml_vtable_t *vt, void **dl_handle)
     LOAD_REQ(DeviceGetPowerUsage,                "nvmlDeviceGetPowerUsage",  NULL);
     LOAD_REQ(DeviceGetEnforcedPowerLimit,        "nvmlDeviceGetEnforcedPowerLimit", NULL);
     LOAD_REQ(DeviceGetTotalEccErrors,            "nvmlDeviceGetTotalEccErrors", NULL);
-    LOAD_REQ(DeviceGetMemoryInfo,                "nvmlDeviceGetMemoryInfo_v2",
-                                                 "nvmlDeviceGetMemoryInfo");
+    LOAD_REQ(DeviceGetMemoryInfo,                "nvmlDeviceGetMemoryInfo",
+                                                 "nvmlDeviceGetMemoryInfo_v2");
     LOAD_REQ(DeviceGetClockInfo,                 "nvmlDeviceGetClockInfo",   NULL);
     LOAD_REQ(DeviceGetUtilizationRates,          "nvmlDeviceGetUtilizationRates", NULL);
     LOAD_REQ(DeviceGetCurrentClocksThrottleReasons,

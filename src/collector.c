@@ -47,19 +47,26 @@ static void poll_sleep(int seconds, volatile int *stop)
  * Populates sample (ring fields) and state (point-in-time fields).
  * Returns NVML_SUCCESS (0) on success, the first NVML error code on failure.
  */
+
 static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
-                        gpu_sample_t *sample, gpu_state_t *state)
+                        gpu_sample_t *sample, gpu_state_t *state,
+                        const char **failed_call)
 {
     int ret;
     unsigned int u = 0;
     unsigned long long ull = 0;
 
+    if (failed_call)
+        *failed_call = "unknown";
+
     /* Timestamp first so it reflects the start of this cycle */
     sample->timestamp_ms = time_now_ms();
 
     /* --- Thermal ----------------------------------------------------------- */
-    if ((ret = vt->DeviceGetTemperature(dev, NVML_TEMPERATURE_GPU, &u)) != 0)
+    if ((ret = vt->DeviceGetTemperature(dev, NVML_TEMPERATURE_GPU, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetTemperature(GPU)";
         return ret;
+    }
     sample->temp_c = (double)u;
 
     u = 0;
@@ -68,43 +75,57 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
         sample->hbm_temp_c = (double)u;
 
     /* --- Power ------------------------------------------------------------- */
-    if ((ret = vt->DeviceGetPowerUsage(dev, &u)) != 0)
+    if ((ret = vt->DeviceGetPowerUsage(dev, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetPowerUsage";
         return ret;
+    }
     sample->power_w = (double)u / 1000.0;   /* mW → W */
 
-    if ((ret = vt->DeviceGetEnforcedPowerLimit(dev, &u)) != 0)
+    if ((ret = vt->DeviceGetEnforcedPowerLimit(dev, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetEnforcedPowerLimit";
         return ret;
+    }
     sample->power_limit_w = (double)u / 1000.0;   /* mW → W */
 
     /* --- SM clock ---------------------------------------------------------- */
-    if ((ret = vt->DeviceGetClockInfo(dev, NVML_CLOCK_SM, &u)) != 0)
+    if ((ret = vt->DeviceGetClockInfo(dev, NVML_CLOCK_SM, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetClockInfo(SM)";
         return ret;
+    }
     sample->sm_clock_mhz = (double)u;
 
     /* --- ECC volatile (ring buffer: rate computation needs deltas) --------- */
     if ((ret = vt->DeviceGetTotalEccErrors(
                 dev, NVML_MEMORY_ERROR_TYPE_CORRECTED,
-                NVML_VOLATILE_ECC, &ull)) != 0)
+                NVML_VOLATILE_ECC, &ull)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetTotalEccErrors(CORRECTED,VOLATILE)";
         return ret;
+    }
     sample->ecc_sbe_volatile = ull;
 
     if ((ret = vt->DeviceGetTotalEccErrors(
                 dev, NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                NVML_VOLATILE_ECC, &ull)) != 0)
+                NVML_VOLATILE_ECC, &ull)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetTotalEccErrors(UNCORRECTED,VOLATILE)";
         return ret;
+    }
     sample->ecc_dbe_volatile = ull;
 
     /* --- State: ECC aggregate ---------------------------------------------- */
     if ((ret = vt->DeviceGetTotalEccErrors(
                 dev, NVML_MEMORY_ERROR_TYPE_CORRECTED,
-                NVML_AGGREGATE_ECC, &ull)) != 0)
+                NVML_AGGREGATE_ECC, &ull)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetTotalEccErrors(CORRECTED,AGGREGATE)";
         return ret;
+    }
     state->ecc_sbe_aggregate = ull;
 
     if ((ret = vt->DeviceGetTotalEccErrors(
                 dev, NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                NVML_AGGREGATE_ECC, &ull)) != 0)
+                NVML_AGGREGATE_ECC, &ull)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetTotalEccErrors(UNCORRECTED,AGGREGATE)";
         return ret;
+    }
     state->ecc_dbe_aggregate = ull;
 
     /* --- State: retired pages (optional) ----------------------------------- */
@@ -138,23 +159,29 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
     /* --- State: memory capacity -------------------------------------------- */
     {
         nvml_memory_t mem;
-        if ((ret = vt->DeviceGetMemoryInfo(dev, &mem)) != 0)
+        if ((ret = vt->DeviceGetMemoryInfo(dev, &mem)) != 0) {
+            if (failed_call) *failed_call = "DeviceGetMemoryInfo";
             return ret;
+        }
         state->mem_used_bytes  = mem.used;
         state->mem_free_bytes  = mem.free;
         state->mem_total_bytes = mem.total;
     }
 
     /* --- State: clocks ----------------------------------------------------- */
-    if ((ret = vt->DeviceGetClockInfo(dev, NVML_CLOCK_MEM, &u)) != 0)
+    if ((ret = vt->DeviceGetClockInfo(dev, NVML_CLOCK_MEM, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetClockInfo(MEM)";
         return ret;
+    }
     state->mem_clock_mhz = (double)u;
 
     /* --- State: utilization ------------------------------------------------ */
     {
         nvml_utilization_t util;
-        if ((ret = vt->DeviceGetUtilizationRates(dev, &util)) != 0)
+        if ((ret = vt->DeviceGetUtilizationRates(dev, &util)) != 0) {
+            if (failed_call) *failed_call = "DeviceGetUtilizationRates";
             return ret;
+        }
         state->util_gpu_pct = (int)util.gpu;
         state->util_mem_pct = (int)util.memory;
     }
@@ -163,8 +190,10 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
     {
         unsigned long long reasons = 0;
         if ((ret = vt->DeviceGetCurrentClocksThrottleReasons(
-                    dev, &reasons)) != 0)
+                    dev, &reasons)) != 0) {
+            if (failed_call) *failed_call = "DeviceGetCurrentClocksThrottleReasons";
             return ret;
+        }
         state->throttle_sw_power_cap   = !!(reasons & NVML_THROTTLE_REASON_SW_POWER_CAP);
         state->throttle_hw_slowdown    = !!(reasons & NVML_THROTTLE_REASON_HW_SLOWDOWN);
         state->throttle_hw_power_brake = !!(reasons & NVML_THROTTLE_REASON_HW_POWER_BRAKE);
@@ -175,18 +204,24 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
     /* --- State: performance state ------------------------------------------ */
     {
         int pstate = 0;
-        if ((ret = vt->DeviceGetPerformanceState(dev, &pstate)) != 0)
+        if ((ret = vt->DeviceGetPerformanceState(dev, &pstate)) != 0) {
+            if (failed_call) *failed_call = "DeviceGetPerformanceState";
             return ret;
+        }
         state->pstate = pstate;
     }
 
     /* --- State: PCIe current link ------------------------------------------ */
-    if ((ret = vt->DeviceGetCurrPcieLinkGeneration(dev, &u)) != 0)
+    if ((ret = vt->DeviceGetCurrPcieLinkGeneration(dev, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetCurrPcieLinkGeneration";
         return ret;
+    }
     state->pcie_link_gen = (int)u;
 
-    if ((ret = vt->DeviceGetCurrPcieLinkWidth(dev, &u)) != 0)
+    if ((ret = vt->DeviceGetCurrPcieLinkWidth(dev, &u)) != 0) {
+        if (failed_call) *failed_call = "DeviceGetCurrPcieLinkWidth";
         return ret;
+    }
     state->pcie_link_width = (int)u;
 
     /* --- State: PCIe replay (optional) ------------------------------------- */
@@ -204,6 +239,7 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
 
     return 0;   /* NVML_SUCCESS */
 }
+
 
 /*
  * Update gpu_state_t fields from a completed dcgm_fields_t poll result.
@@ -288,8 +324,9 @@ static void *poll_thread(void *arg)
         state.energy_j           = 0.0;
         state.mem_bw_util_pct    = 0.0;
 
+        const char *failed_call = "unknown";
         int nvml_ret = do_nvml_poll(&exp->nvml, ctx->nvml_handle,
-                                    &sample, &state);
+                                    &sample, &state, &failed_call);
 
         if (nvml_ret != 0) {
             ctx->consecutive_errors++;
@@ -297,9 +334,11 @@ static void *poll_thread(void *arg)
 
             if (NVML_IS_HARD_ERROR(nvml_ret)) {
                 ctx->consecutive_hard_errors++;
-                log_error("collector[%d]: hard NVML error %d (streak=%d)",
-                          ctx->gpu_index, nvml_ret,
-                          ctx->consecutive_hard_errors);
+                log_error("collector[%d]: hard NVML error %d (%s) in %s (streak=%d)",
+                           ctx->gpu_index, nvml_ret,
+                           exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
+                           failed_call,
+                           ctx->consecutive_hard_errors);
                 if (ctx->consecutive_hard_errors
                         >= cfg->nvml_hard_error_threshold) {
                     ctx->gpu_present = 0;
@@ -309,9 +348,11 @@ static void *poll_thread(void *arg)
                     break;
                 }
             } else {
-                log_error("collector[%d]: NVML error %d (streak=%d)",
-                          ctx->gpu_index, nvml_ret,
-                          ctx->consecutive_errors);
+                   log_error("collector[%d]: NVML error %d (%s) in %s (streak=%d)",
+                   ctx->gpu_index, nvml_ret,
+                   exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
+                   failed_call,
+                   ctx->consecutive_errors);
             }
 
             if (ctx->consecutive_errors >= cfg->nvml_error_threshold) {
