@@ -1,8 +1,8 @@
 [Unit]
 Description=GPU Health Exporter
 Documentation=https://github.com/VictorySpecificationII/gpu-health-index
-After=network.target nv-hostengine.service
-Requires=nv-hostengine.service
+After=network.target nvidia-dcgm.service
+Requires=nvidia-dcgm.service
 
 # nv-hostengine is the DCGM daemon. It is operationally required — if it
 # stops, this unit stops with it. NVML alone gives an incomplete health
