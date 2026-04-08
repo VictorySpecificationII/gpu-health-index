@@ -39,6 +39,41 @@ typedef struct {
     unsigned long long violationTime;   /* cumulative µs throttled          */
 } nvml_violation_time_t;
 
+typedef enum
+{
+    NVML_VALUE_TYPE_DOUBLE = 0,
+    NVML_VALUE_TYPE_UNSIGNED_INT = 1,
+    NVML_VALUE_TYPE_UNSIGNED_LONG = 2,
+    NVML_VALUE_TYPE_UNSIGNED_LONG_LONG = 3,
+    NVML_VALUE_TYPE_SIGNED_LONG_LONG = 4,
+    NVML_VALUE_TYPE_SIGNED_INT = 5,
+    NVML_VALUE_TYPE_UNSIGNED_SHORT = 6,
+
+    /* Keep this last */
+    NVML_VALUE_TYPE_COUNT
+} nvml_value_type_t;
+
+typedef union
+{
+    double dVal;
+    int siVal;
+    unsigned int uiVal;
+    unsigned long ulVal;
+    unsigned long long ullVal;
+    signed long long sllVal;
+    unsigned short usVal;
+} nvml_value_t;
+
+typedef struct {
+    unsigned int fieldId;
+    unsigned int scopeId;
+    long long timestamp;
+    long long latencyUsec;
+    nvml_value_type_t valueType;
+    int nvmlReturn;
+    nvml_value_t value;
+} nvml_field_value_t;
+
 /* =========================================================================
  * Constants
  *
@@ -56,13 +91,17 @@ typedef struct {
 #define NVML_ERROR_INSUFFICIENT_SIZE     7
 #define NVML_ERROR_TIMEOUT               9    /* also DRIVER_NOT_LOADED on some versions */
 #define NVML_ERROR_DRIVER_NOT_LOADED     9
+#define NVML_ERROR_FUNCTION_NOT_FOUND    13
 #define NVML_ERROR_GPU_IS_LOST           15
 #define NVML_ERROR_RESET_REQUIRED        16
+#define NVML_ERROR_OPERATING_SYSTEM      17
 #define NVML_ERROR_UNKNOWN               999
 
 /* Temperature sensors */
 #define NVML_TEMPERATURE_GPU             0
-#define NVML_TEMPERATURE_MEM             1    /* HBM — Ampere+ only */
+
+/* Field IDs */
+#define NVML_FI_DEV_MEMORY_TEMP          82
 
 /* Clock types */
 #define NVML_CLOCK_GRAPHICS              0
@@ -127,6 +166,7 @@ typedef struct {
 
     /* Per-poll: thermal */
     int (*DeviceGetTemperature)(void *dev, int sensor, unsigned int *temp);
+    int (*DeviceGetFieldValues)(void *dev, int valuesCount, nvml_field_value_t *values);
 
     /* Per-poll: power */
     int (*DeviceGetPowerUsage)(void *dev, unsigned int *milliwatts);
@@ -155,7 +195,7 @@ typedef struct {
 
     /* Per-poll: throttle reasons */
     int (*DeviceGetCurrentClocksThrottleReasons)(void *dev,
-                                                  unsigned long long *reasons);
+                                                 unsigned long long *reasons);
 
     /* Per-poll: performance state */
     int (*DeviceGetPerformanceState)(void *dev, int *pstate);

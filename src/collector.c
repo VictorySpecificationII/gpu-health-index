@@ -69,10 +69,26 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
     }
     sample->temp_c = (double)u;
 
-    u = 0;
-    /* HBM temp: optional — not available on all SKUs; ignore failure */
-    if (vt->DeviceGetTemperature(dev, NVML_TEMPERATURE_MEM, &u) == 0)
-        sample->hbm_temp_c = (double)u;
+    /*
+     * HBM temperature via NVML field API.
+     * nvidia-smi queries temperature.memory on H100 successfully, but that
+     * is not exposed via nvmlDeviceGetTemperature(..., NVML_TEMPERATURE_MEM).
+     * Use nvmlDeviceGetFieldValues(NVML_FI_DEV_MEMORY_TEMP) instead.
+     */
+    sample->hbm_temp_c = 0.0;
+    if (vt->DeviceGetFieldValues) {
+        nvml_field_value_t fv;
+        memset(&fv, 0, sizeof(fv));
+        fv.fieldId = NVML_FI_DEV_MEMORY_TEMP;
+        fv.scopeId = 0;
+
+        ret = vt->DeviceGetFieldValues(dev, 1, &fv);
+        if (ret == NVML_SUCCESS &&
+            fv.nvmlReturn == NVML_SUCCESS &&
+            fv.valueType == NVML_VALUE_TYPE_UNSIGNED_INT) {
+            sample->hbm_temp_c = (double)fv.value.uiVal;
+        }
+    }
 
     /* --- Power ------------------------------------------------------------- */
     if ((ret = vt->DeviceGetPowerUsage(dev, &u)) != 0) {
@@ -240,7 +256,6 @@ static int do_nvml_poll(const nvml_vtable_t *vt, void *dev,
     return 0;   /* NVML_SUCCESS */
 }
 
-
 /*
  * Update gpu_state_t fields from a completed dcgm_fields_t poll result.
  * Only writes fields that DCGM reported as available (non-sentinel).
@@ -335,10 +350,10 @@ static void *poll_thread(void *arg)
             if (NVML_IS_HARD_ERROR(nvml_ret)) {
                 ctx->consecutive_hard_errors++;
                 log_error("collector[%d]: hard NVML error %d (%s) in %s (streak=%d)",
-                           ctx->gpu_index, nvml_ret,
-                           exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
-                           failed_call,
-                           ctx->consecutive_hard_errors);
+                          ctx->gpu_index, nvml_ret,
+                          exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
+                          failed_call,
+                          ctx->consecutive_hard_errors);
                 if (ctx->consecutive_hard_errors
                         >= cfg->nvml_hard_error_threshold) {
                     ctx->gpu_present = 0;
@@ -348,11 +363,11 @@ static void *poll_thread(void *arg)
                     break;
                 }
             } else {
-                   log_error("collector[%d]: NVML error %d (%s) in %s (streak=%d)",
-                   ctx->gpu_index, nvml_ret,
-                   exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
-                   failed_call,
-                   ctx->consecutive_errors);
+                log_error("collector[%d]: NVML error %d (%s) in %s (streak=%d)",
+                          ctx->gpu_index, nvml_ret,
+                          exp->nvml.ErrorString ? exp->nvml.ErrorString(nvml_ret) : "unknown",
+                          failed_call,
+                          ctx->consecutive_errors);
             }
 
             if (ctx->consecutive_errors >= cfg->nvml_error_threshold) {
