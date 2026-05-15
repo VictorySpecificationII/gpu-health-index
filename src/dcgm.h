@@ -162,7 +162,10 @@ typedef struct {
                         long update_freq_us, double max_keep_age_s,
                         int max_keep_samples);
 
-    /* Per-poll: latest field values for one GPU */
+    /* Per-poll: force a cache refresh, then read latest field values.
+     * UpdateAllFields: DCGM 4.x requires an explicit trigger even in daemon
+     * mode; optional so older builds without it are unaffected. */
+    int  (*UpdateAllFields)(long handle, int wait_for_update); /* optional */
     int  (*GetLatestValues)(long handle, int gpu_id,
                             unsigned short *fields, int count,
                             void /* dcgm_field_value_t */ *values);

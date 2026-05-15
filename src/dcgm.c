@@ -102,6 +102,9 @@ int dcgm_load(dcgm_vtable_t *vt, void **dl_handle)
      * mirror of v1.  Use v1 directly; fall back to v2 only on older builds. */
     LOAD_REQ(GetLatestValues,  "dcgmGetLatestValues",
                                "dcgmGetLatestValues_v2");
+    /* DCGM 4.x requires an explicit UpdateAllFields trigger before reading
+     * values even in daemon mode.  Optional: absent on older DCGM versions. */
+    LOAD_OPT(UpdateAllFields,  "dcgmUpdateAllFields",                     NULL);
     LOAD_OPT(ErrorString,      "dcgmErrorString",                         NULL);
 
 #undef LOAD_OPT
@@ -225,6 +228,12 @@ int dcgm_poll(dcgm_vtable_t *vt, long handle, int gpu_id, dcgm_fields_t *out)
     out->xid_last_code        = DCGM_FIELD_UNAVAILABLE_U32;
     out->pcie_replay          = DCGM_FIELD_UNAVAILABLE_U64;
     out->row_remap_failures   = DCGM_FIELD_UNAVAILABLE_U32;
+
+    if (vt->UpdateAllFields) {
+        int uret = vt->UpdateAllFields(handle, 1 /* wait */);
+        if (uret != DCGM_ST_OK)
+            log_debug("dcgm: UpdateAllFields failed: %s", dcgm_strerror(vt, uret));
+    }
 
     dcgm_field_value_t values[DCGM_NUM_POLL_FIELDS];
     memset(values, 0, sizeof(values));
