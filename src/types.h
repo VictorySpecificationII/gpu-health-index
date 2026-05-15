@@ -309,6 +309,7 @@ typedef struct {
 #define CFG_DEFAULT_STATE_DIR              "/var/run/gpu-health"
 #define CFG_DEFAULT_BASELINE_DIR           "/etc/gpu-health/baseline"
 #define CFG_DEFAULT_LISTEN_ADDR            "0.0.0.0"
+#define CFG_DEFAULT_FILE_SD_PATH           ""
 #define CFG_DEFAULT_LISTEN_PORT            9108
 #define CFG_DEFAULT_POLL_INTERVAL_S        1
 #define CFG_DEFAULT_WINDOW_S               300
@@ -415,6 +416,9 @@ typedef struct {
     int    dcgm_timeout_ms;
     int    dcgm_error_threshold;
     int    dcgm_retry_interval_s;
+
+    /* Prometheus file_sd — empty string disables */
+    char   file_sd_path[256];
 
     /* TLS (child only, WITH_TLS=1 build) */
     char   tls_cert_path[256];

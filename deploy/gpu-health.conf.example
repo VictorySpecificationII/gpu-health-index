@@ -45,6 +45,20 @@ listen_addr = 0.0.0.0
 # Range: 1–65535
 listen_port = 9108
 
+# Prometheus file_sd target file path (bare metal multi-node discovery).
+# When set, the exporter writes a JSON file at startup so Prometheus can
+# discover this node automatically without static scrape config.
+# Format: [{"targets":["hostname:port"],"labels":{"job":"gpu-health"}}]
+# The file is removed on clean shutdown (SIGTERM).
+# Leave empty (default) to disable — use static scrape_configs instead.
+# Prometheus file_sd_configs example:
+#   - job_name: gpu-health
+#     file_sd_configs:
+#       - files: ['/etc/prometheus/file_sd/gpu-health/*.json']
+#         refresh_interval: 60s
+# Range: any valid writable path, or empty to disable
+#file_sd_path = /etc/prometheus/file_sd/gpu-health/gpu-health.json
+
 
 # ---------------------------------------------------------------------------
 # Polling

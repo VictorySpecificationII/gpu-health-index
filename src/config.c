@@ -102,6 +102,9 @@ static const cfg_entry_t cfg_table[] = {
     { "dcgm_error_threshold",        CFG_INT, OFF(dcgm_error_threshold),        1,      1000,    0                               },
     { "dcgm_retry_interval_s",       CFG_INT, OFF(dcgm_retry_interval_s),       1,      3600,    0                               },
 
+    /* Prometheus file_sd */
+    { "file_sd_path",                CFG_STR, OFF(file_sd_path),                0,      0,       SZ(file_sd_path)                },
+
     /* TLS */
     { "tls_cert_path",               CFG_STR, OFF(tls_cert_path),               0,      0,       SZ(tls_cert_path)               },
     { "tls_key_path",                CFG_STR, OFF(tls_key_path),                0,      0,       SZ(tls_key_path)                },

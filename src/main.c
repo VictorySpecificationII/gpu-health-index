@@ -33,6 +33,7 @@
 #include "collector.h"
 #include "config.h"
 #include "dcgm.h"
+#include "filesd.h"
 #include "http.h"
 #include "nvml.h"
 #include "procpriv.h"
@@ -613,9 +614,10 @@ int main(int argc, char **argv) {
     }
 
     /* ------------------------------------------------------------------ */
-    /* 10. sd_notify READY=1                                              */
+    /* 10. sd_notify READY=1, write Prometheus file_sd target             */
     /* ------------------------------------------------------------------ */
     sd_notify_ready();
+    filesd_write(&exp.cfg);
 
     /* ------------------------------------------------------------------ */
     /* 11. Steady-state monitor loop                                      */
@@ -656,6 +658,7 @@ int main(int argc, char **argv) {
     /* ------------------------------------------------------------------ */
     /* 12. Graceful shutdown                                              */
     /* ------------------------------------------------------------------ */
+    filesd_remove(&exp.cfg);
     shutdown_all(&exp);
 
     log_info("main: exited cleanly");

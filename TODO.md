@@ -26,7 +26,7 @@
 - [ ] `deploy/k8s/servicemonitor.yaml`
 - [ ] `deploy/k8s/rbac.yaml`
 - [ ] `deploy/k8s/Chart.yaml` — Helm chart root
-- [ ] Prometheus `file_sd` entry written at startup (bare metal path only — see DESIGN.md §2.10)
+- [x] Prometheus `file_sd` entry written at startup (bare metal path only — see DESIGN.md §2.10)
 
 ### Tests
 - [x] `tests/test_http.c` — `http.c` has no unit tests; cover `render_metrics` output format, `/ready` and `/live` response codes, NaN field handling
