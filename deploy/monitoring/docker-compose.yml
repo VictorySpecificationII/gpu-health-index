@@ -41,7 +41,26 @@ services:
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
 
+  # LocalStack — local S3-compatible store for development and integration testing.
+  # Exposes S3 on port 4566. Not needed in production — remove or comment out
+  # when deploying against a real S3 endpoint.
+  #
+  # Create the probe-history bucket after first start:
+  #   aws --endpoint-url http://localhost:4566 s3 mb s3://gpu-health-probe-history
+  localstack:
+    image: localstack/localstack:latest
+    container_name: gpu-health-localstack
+    network_mode: host
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+      - LOCALSTACK_HOST=localhost
+    volumes:
+      - localstack-data:/var/lib/localstack
+    restart: unless-stopped
+
 volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  localstack-data:

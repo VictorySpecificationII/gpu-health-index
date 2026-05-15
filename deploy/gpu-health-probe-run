@@ -26,3 +26,9 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
 done
 
 echo "gpu-health-probe-run: all GPUs complete"
+
+# Upload probe results to S3 if the writer is installed and S3_BUCKET is set.
+# Non-fatal: a failed upload does not fail the probe service.
+if command -v gpu-health-s3-writer >/dev/null 2>&1; then
+    gpu-health-s3-writer || echo "gpu-health-probe-run: S3 upload failed (non-fatal)" >&2
+fi

@@ -343,6 +343,32 @@ dcgm_retry_interval_s = 60
 
 
 # ---------------------------------------------------------------------------
+# S3 probe history (gpu-health-s3-writer)
+# ---------------------------------------------------------------------------
+#
+# After each probe run, gpu-health-s3-writer uploads the result to an S3-
+# compatible endpoint as {prefix}/{serial}/{probe_timestamp}.json. These
+# objects are consumed by the Phase 2 financial layer and never read by the
+# exporter itself. See ADR-010.
+#
+# Configuration is read from /etc/gpu-health/s3.conf (KEY=value, sourced by
+# the writer script). Create and populate that file to enable uploads:
+#
+#   S3_BUCKET=gpu-health-probe-history
+#   S3_PREFIX=probe-history
+#   S3_ENDPOINT_URL=http://localhost:4566   # LocalStack; omit for real AWS
+#   AWS_DEFAULT_REGION=us-east-1
+#   AWS_ACCESS_KEY_ID=...                   # or use an IAM role / instance profile
+#   AWS_SECRET_ACCESS_KEY=...
+#
+# LocalStack quick-start (development):
+#   docker compose up -d localstack
+#   aws --endpoint-url http://localhost:4566 s3 mb s3://gpu-health-probe-history
+#
+# If /etc/gpu-health/s3.conf does not exist or S3_BUCKET is empty, the writer
+# exits silently — the probe service is unaffected.
+
+# ---------------------------------------------------------------------------
 # TLS
 # ---------------------------------------------------------------------------
 #

@@ -42,8 +42,9 @@
 - [x] Alertmanager service added to docker-compose; prometheus.yml wired to localhost:9093; alertmanager.yml has stub receiver with Slack/email/PagerDuty/webhook templates and inhibit rule (critical suppresses warning for same GPU); Grafana provisioned with Alertmanager data source
 
 ### Baseline history
-- [ ] Per-probe JSON record written to S3 (or S3-compatible endpoint) — one object per run, keyed `{serial}/{timestamp}.json`; never read by the exporter, consumed by Phase 2 financial layer (see ADR-010)
-- [ ] Writer component — triggered post-probe, reads `{serial}.probe`, emits structured JSON to configured S3 endpoint; no-op if endpoint not configured
+- [x] Per-probe JSON record written to S3 — `deploy/gpu-health-s3-writer`; keyed `{prefix}/{serial}/{probe_timestamp}.json`; called from probe-run, non-fatal on failure
+- [x] Writer component — reads `{serial}.probe`, builds JSON, uploads via `aws s3api put-object`; no-op if `S3_BUCKET` not set; config in `/etc/gpu-health/s3.conf`
+- [x] Local S3 for dev/test — LocalStack added to docker-compose (`SERVICES=s3`, port 4566)
 - [ ] Local fallback — if S3 not configured, append to `{serial}.history` in state_dir for bare metal single-node setups
 
 ### Security

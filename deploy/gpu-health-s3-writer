@@ -1,0 +1,125 @@
+#!/bin/bash
+# gpu-health-s3-writer — upload probe results to S3 after each probe run.
+#
+# Reads every {serial}.probe file in STATE_DIR, converts it to JSON, and
+# uploads it to S3 as {S3_PREFIX}/{serial}/{probe_timestamp}.json.
+#
+# No-op if S3_BUCKET is not set. Safe to call even when S3 is not configured.
+#
+# Configuration (environment variables or /etc/gpu-health/s3.conf):
+#   S3_BUCKET           — target bucket name (required to enable uploads)
+#   S3_PREFIX           — key prefix inside the bucket (default: probe-history)
+#   S3_ENDPOINT_URL     — endpoint override for S3-compatible stores (e.g. LocalStack)
+#   AWS_DEFAULT_REGION  — AWS region (default: us-east-1)
+#   GPU_HEALTH_STATE_DIR — directory containing .probe files (default: /var/run/gpu-health)
+#
+# Dependencies: aws CLI (aws s3api put-object)
+
+set -euo pipefail
+
+# Source config file if present (KEY=value format, same syntax as systemd EnvironmentFile)
+if [ -f /etc/gpu-health/s3.conf ]; then
+    # shellcheck disable=SC1091
+    set -a; source /etc/gpu-health/s3.conf; set +a
+fi
+
+STATE_DIR="${GPU_HEALTH_STATE_DIR:-/var/run/gpu-health}"
+S3_BUCKET="${S3_BUCKET:-}"
+S3_PREFIX="${S3_PREFIX:-probe-history}"
+S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-}"
+AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+
+if [ -z "${S3_BUCKET}" ]; then
+    echo "gpu-health-s3-writer: S3_BUCKET not configured — skipping upload" >&2
+    exit 0
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+    echo "gpu-health-s3-writer: aws CLI not found — cannot upload" >&2
+    exit 1
+fi
+
+AWS_ARGS=(--region "${AWS_DEFAULT_REGION}")
+if [ -n "${S3_ENDPOINT_URL}" ]; then
+    AWS_ARGS+=(--endpoint-url "${S3_ENDPOINT_URL}")
+fi
+
+uploaded=0
+failed=0
+hostname=$(hostname -f)
+
+shopt -s nullglob
+probe_files=("${STATE_DIR}"/*.probe)
+shopt -u nullglob
+
+if [ "${#probe_files[@]}" -eq 0 ]; then
+    echo "gpu-health-s3-writer: no .probe files found in ${STATE_DIR}" >&2
+    exit 0
+fi
+
+for probe_file in "${probe_files[@]}"; do
+    [ -f "${probe_file}" ] || continue
+
+    serial="" uuid="" driver_version="" perf_w_mean="" probe_timestamp=""
+    probe_exit_code="0" probe_duration_s="0" workload="" sample_count="0"
+
+    while IFS='=' read -r key val; do
+        [[ "${key}" =~ ^# ]] && continue
+        key="${key%"${key##*[![:space:]]}"}"   # rtrim
+        val="${val#"${val%%[![:space:]]*}"}"   # ltrim
+        case "${key}" in
+            serial)           serial="${val}"           ;;
+            uuid)             uuid="${val}"             ;;
+            driver_version)   driver_version="${val}"   ;;
+            perf_w_mean)      perf_w_mean="${val}"      ;;
+            probe_timestamp)  probe_timestamp="${val}"  ;;
+            probe_exit_code)  probe_exit_code="${val}"  ;;
+            probe_duration_s) probe_duration_s="${val}" ;;
+            workload)         workload="${val}"          ;;
+            sample_count)     sample_count="${val}"     ;;
+        esac
+    done < "${probe_file}"
+
+    if [ -z "${serial}" ] || [ -z "${probe_timestamp}" ]; then
+        echo "gpu-health-s3-writer: ${probe_file}: missing serial or probe_timestamp — skipping" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+
+    # S3 key: {prefix}/{serial}/{probe_timestamp}.json
+    s3_key="${S3_PREFIX}/${serial}/${probe_timestamp}.json"
+
+    # Build JSON without external dependencies
+    json=$(printf '{
+  "serial": "%s",
+  "uuid": "%s",
+  "driver_version": "%s",
+  "probe_timestamp": "%s",
+  "probe_exit_code": %s,
+  "probe_duration_s": %s,
+  "perf_w_mean": %s,
+  "workload": "%s",
+  "sample_count": %s,
+  "host": "%s"
+}' \
+        "${serial}" "${uuid}" "${driver_version}" "${probe_timestamp}" \
+        "${probe_exit_code}" "${probe_duration_s}" "${perf_w_mean:-0}" \
+        "${workload}" "${sample_count}" "${hostname}")
+
+    if echo "${json}" | aws s3api put-object \
+            "${AWS_ARGS[@]}" \
+            --bucket "${S3_BUCKET}" \
+            --key "${s3_key}" \
+            --body /dev/stdin \
+            --content-type "application/json" \
+            > /dev/null; then
+        echo "gpu-health-s3-writer: uploaded s3://${S3_BUCKET}/${s3_key}"
+        uploaded=$((uploaded + 1))
+    else
+        echo "gpu-health-s3-writer: FAILED s3://${S3_BUCKET}/${s3_key}" >&2
+        failed=$((failed + 1))
+    fi
+done
+
+echo "gpu-health-s3-writer: done — uploaded=${uploaded} failed=${failed}"
+[ "${failed}" -eq 0 ]
