@@ -38,7 +38,7 @@
 ## Phase 1.5 — bare metal hardening (before K8s)
 
 ### Alerting
-- [ ] Prometheus alerting rules — `gpu_health_class=4` (decommission candidate), `gpu_dcgm_available=0`, `gpu_available=0`, `gpu_telemetry_ok=0`, `gpu_ecc_dbe_in_window=1`, `gpu_probe_result_stale=1`
+- [x] Prometheus alerting rules — `deploy/monitoring/prometheus/alerts.yml`: GpuExporterDown, GpuUnavailable, GpuDcgmUnavailable, GpuDecommissionCandidate, GpuDegrading, GpuTelemetryIncomplete, GpuEccDoubleBitError, GpuHighEccSbeRate, GpuRowRemapFailure, GpuPcieLinkDegraded, GpuProbeResultStale
 - [ ] Grafana alert annotations or contact point wiring (optional — Prometheus Alertmanager is sufficient)
 
 ### Baseline history

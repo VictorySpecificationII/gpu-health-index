@@ -1,0 +1,126 @@
+groups:
+  - name: gpu_health
+    rules:
+
+      # -----------------------------------------------------------------------
+      # Exporter reachability
+      # -----------------------------------------------------------------------
+
+      - alert: GpuExporterDown
+        expr: up{job="gpu-health"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU health exporter unreachable ({{ $labels.instance }})"
+          description: "Prometheus cannot scrape {{ $labels.instance }}. The exporter process may have crashed or the host is unreachable."
+
+      # -----------------------------------------------------------------------
+      # Device availability
+      # -----------------------------------------------------------------------
+
+      - alert: GpuUnavailable
+        expr: gpu_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU NVML unavailable ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "NVML is no longer responding for GPU serial {{ $labels.serial }} on {{ $labels.instance }}. Error threshold exceeded — device may have fallen off the bus."
+
+      - alert: GpuDcgmUnavailable
+        expr: gpu_dcgm_available == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DCGM unavailable ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "DCGM is not connected or not responding for {{ $labels.instance }}. Board power, energy, memory bandwidth, and violation counters are unavailable. DCGM is operationally required on this fleet."
+
+      # -----------------------------------------------------------------------
+      # Health score
+      # -----------------------------------------------------------------------
+
+      - alert: GpuDecommissionCandidate
+        expr: gpu_health_class == 4
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU decommission candidate ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "GPU serial {{ $labels.serial }} on {{ $labels.instance }} has health score below 50 for 5 minutes. Investigate before returning to workload pool."
+
+      - alert: GpuDegrading
+        expr: gpu_health_class == 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU degrading ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "GPU serial {{ $labels.serial }} on {{ $labels.instance }} has health score between 50–70. Monitor closely — may progress to decommission candidate."
+
+      - alert: GpuTelemetryIncomplete
+        expr: gpu_telemetry_ok == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU telemetry incomplete — score withheld ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "Fewer samples than expected in the scoring window for GPU {{ $labels.serial }} on {{ $labels.instance }}. Score is suppressed. Check poll thread health and NVML connectivity."
+
+      # -----------------------------------------------------------------------
+      # ECC errors
+      # -----------------------------------------------------------------------
+
+      - alert: GpuEccDoubleBitError
+        expr: gpu_ecc_dbe_in_window == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU ECC double-bit error ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "Active ECC double-bit error detected for GPU {{ $labels.serial }} on {{ $labels.instance }}. This indicates uncorrectable memory corruption. Drain workloads and inspect immediately."
+
+      - alert: GpuHighEccSbeRate
+        expr: gpu_ecc_sbe_rate_per_hour > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU ECC single-bit error rate elevated ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "ECC SBE rate is {{ $value | printf \"%.1f\" }}/hr for GPU {{ $labels.serial }} on {{ $labels.instance }} (threshold: 100/hr). Elevated SBE rate is a leading indicator of hardware degradation."
+
+      - alert: GpuRowRemapFailure
+        expr: gpu_row_remap_failures > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU row remap failure ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "GPU {{ $labels.serial }} on {{ $labels.instance }} has {{ $value }} row remapping failure(s). Row remap failures are irreversible — this GPU requires decommission evaluation."
+
+      # -----------------------------------------------------------------------
+      # Interconnects
+      # -----------------------------------------------------------------------
+
+      - alert: GpuPcieLinkDegraded
+        expr: gpu_pcie_link_gen < gpu_pcie_link_gen_max or gpu_pcie_link_width < gpu_pcie_link_width_max
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU PCIe link degraded ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "GPU {{ $labels.serial }} on {{ $labels.instance }} is running at a degraded PCIe link. Check for loose seating or BIOS-level link negotiation issues."
+
+      # -----------------------------------------------------------------------
+      # Probe
+      # -----------------------------------------------------------------------
+
+      - alert: GpuProbeResultStale
+        expr: gpu_probe_result_stale == 1
+        for: 25h
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU probe result stale ({{ $labels.instance }}, serial {{ $labels.serial }})"
+          description: "The cuBLAS probe result for GPU {{ $labels.serial }} on {{ $labels.instance }} is older than the configured TTL. Check that gpu-health-probe.timer is active and the probe binary is installed."
