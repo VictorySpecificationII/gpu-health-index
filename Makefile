@@ -96,6 +96,12 @@ install: $(BUILDDIR)/$(BINARY)
 	install -Dm755 deploy/gpu-health-probe-run $(PREFIX)/bin/gpu-health-probe-run
 	install -Dm644 deploy/gpu-health-probe.service /etc/systemd/system/gpu-health-probe.service
 	install -Dm644 deploy/gpu-health-probe.timer /etc/systemd/system/gpu-health-probe.timer
+ifeq ($(WITH_TLS),1)
+	# TLS cert/key directory — readable only by root and the service account
+	install -d /etc/gpu-health/tls
+	chown root:gpu-health /etc/gpu-health/tls
+	chmod 0750 /etc/gpu-health/tls
+endif
 
 # ---- Clean ------------------------------------------------------------------
 
