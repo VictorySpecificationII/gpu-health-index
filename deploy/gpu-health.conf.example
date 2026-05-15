@@ -361,8 +361,8 @@ dcgm_retry_interval_s = 60
 #   AWS_ACCESS_KEY_ID=...                   # or use an IAM role / instance profile
 #   AWS_SECRET_ACCESS_KEY=...
 #
-# LocalStack quick-start (development):
-#   docker compose up -d localstack
+# Local dev quick-start (moto server — Apache 2.0, no credentials needed):
+#   docker compose up -d s3mock
 #   aws --endpoint-url http://localhost:4566 s3 mb s3://gpu-health-probe-history
 #
 # If /etc/gpu-health/s3.conf does not exist or S3_BUCKET is empty, the writer
