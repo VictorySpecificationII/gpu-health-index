@@ -393,8 +393,10 @@ statically and wraps accepted file descriptors before request dispatch. When dis
 Cert and key paths are in the config file — if absent at runtime, startup fails with a clear
 error rather than silently falling back to plain HTTP.
 
-This is a Phase 1 TODO — the build flag and config keys exist; the `http.c` implementation is
-pending.
+The build flag and config keys exist; the `http.c` implementation is pending.
+TLS is de-prioritised — the management network on target deployments is trusted, and this
+unblocks nothing in the Phase 1 or Phase 2 critical path. It will be implemented when a
+deployment environment requires it.
 
 ### Consequences
 

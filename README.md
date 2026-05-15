@@ -114,6 +114,7 @@ state_dir                   = /var/run/gpu-health
 baseline_dir                = /etc/gpu-health/baseline
 listen_addr                 = 0.0.0.0
 listen_port                 = 9108
+file_sd_path                =   # Prometheus file_sd target file; empty = disabled
 
 # ── Polling ───────────────────────────────────────────────────────────
 poll_interval_s             = 1
@@ -203,6 +204,30 @@ Key unit properties:
 - `RuntimeDirectory=gpu-health` — systemd creates `/var/run/gpu-health` automatically
 - `TimeoutStartSec=60s` — the exporter sends `READY=1` after the first successful poll on all GPUs; 60s gives margin for driver and DCGM init on large GPU counts
 - `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
+
+**Prometheus file_sd (multi-node bare metal):**
+
+Set `file_sd_path` in the config to have the exporter write its scrape target automatically at startup and remove it on clean shutdown:
+
+```sh
+sudo mkdir -p /etc/prometheus/file_sd/gpu-health
+```
+
+```
+# /etc/gpu-health/gpu-health.conf
+file_sd_path = /etc/prometheus/file_sd/gpu-health/gpu-health.json
+```
+
+Then in `prometheus.yml`:
+```yaml
+scrape_configs:
+  - job_name: gpu-health
+    file_sd_configs:
+      - files: ['/etc/prometheus/file_sd/gpu-health/*.json']
+        refresh_interval: 60s
+```
+
+Each node writes its own file. Prometheus discovers all of them automatically. No static `scrape_configs` entry per node.
 
 ### Kubernetes (DaemonSet)
 
@@ -448,9 +473,13 @@ The exporter reloads on change via inotify — no restart needed.
 **Kubernetes:** mount a ConfigMap at the same path. Kubelet propagates
 ConfigMap updates; inotify picks up the change.
 
-Baselines are produced by the companion `gpu_health_probe` binary (Phase 2,
-cuBLAS BF16 GEMM). The exporter exposes `gpu_baseline_available` and
-`gpu_baseline_age_seconds` for pipeline consumption.
+Baselines are produced by the companion `gpu_health_probe` binary
+(`probe/gpu_health_probe.cu`), a cuBLAS BF16 GEMM workload. Build it with
+`make -C probe`. Run once per GPU at commissioning; the result file is written
+to `state_dir/{serial}.probe` and picked up by the exporter automatically.
+
+The exporter exposes `gpu_baseline_available` and `gpu_baseline_age_seconds`
+for pipeline consumption.
 
 ---
 
