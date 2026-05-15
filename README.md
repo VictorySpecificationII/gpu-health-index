@@ -250,6 +250,14 @@ Key unit properties:
 - `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
 - `User=gpu-health`, `ProtectSystem=strict`, `PrivateTmp=yes` — runs as a dedicated account with filesystem isolation
 
+**Log rotation**
+
+Logs go to stderr and are captured by journald (`StandardError=journal` in the unit file). No logrotate config is needed — journald handles rotation automatically via `SystemMaxUse` in `/etc/systemd/journald.conf`.
+
+At the default `INFO` log level the poll path is silent in steady state: all per-poll calls are `log_debug` and are suppressed. Log lines only appear on errors, back-off retries, or startup/shutdown events. journald's default `RateLimitBurst` (10 000 messages per 30 s) is not a concern at any realistic GPU count or poll rate.
+
+At `DEBUG` level (`GPU_HEALTH_LOG_LEVEL=debug`) the worst case is roughly 3 lines per GPU per poll. At `poll_interval_s=1` with 16 GPUs that is ~3 × 16 × 2 = 96 lines per 30 s — two orders of magnitude below the burst limit. No `LogRateLimitBurst` override is required in the unit file.
+
 **Prometheus file_sd (multi-node bare metal):**
 
 Set `file_sd_path` in the config to have the exporter write its scrape target automatically at startup and remove it on clean shutdown:

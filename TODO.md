@@ -51,7 +51,7 @@
 
 ### Operational
 - [ ] Runbook — what on-call does when `gpu_health_class=4` fires, DCGM drops, probe goes stale, ECC DBE appears
-- [ ] Log rotation — confirm `journald` RateLimitBurst covers poll-rate log volume; document if `journald` is not used
+- [x] Log rotation — journald handles rotation; default RateLimitBurst (10000/30s) not a concern; steady-state INFO log volume is near-zero; documented in README
 
 ---
 
