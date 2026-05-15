@@ -15,7 +15,7 @@
 - [x] `procpriv_parent_setup()` — `capset()` drop to minimal set after NVML file descriptors are already open
 
 ### Optional TLS
-- [ ] `http.c` — `WITH_TLS=1` build path: mbedTLS server setup, cert/key load from config (`tls_cert_path`, `tls_key_path`), wrap each accepted fd before request dispatch
+- [x] `http.c` — `WITH_TLS=1` build path: mbedTLS server setup, cert/key load from config (`tls_cert_path`, `tls_key_path`), wrap each accepted fd before request dispatch
 
 ### Deployment artifacts
 - [x] `deploy/gpu-health.service` — systemd unit (bare metal)

@@ -393,10 +393,9 @@ statically and wraps accepted file descriptors before request dispatch. When dis
 Cert and key paths are in the config file — if absent at runtime, startup fails with a clear
 error rather than silently falling back to plain HTTP.
 
-The build flag and config keys exist; the `http.c` implementation is pending.
-TLS is de-prioritised — the management network on target deployments is trusted, and this
-unblocks nothing in the Phase 1 or Phase 2 critical path. It will be implemented when a
-deployment environment requires it.
+Implemented in `http.c` via `conn_t` abstraction: cert/key are loaded before `procpriv_child_setup()`
+so that `openat(2)` is available; post-seccomp handshakes use only `getrandom(2)` (already in the
+allowlist). Prometheus scraping over TLS works out of the box with `tls_config` in prometheus.yml.
 
 ### Consequences
 

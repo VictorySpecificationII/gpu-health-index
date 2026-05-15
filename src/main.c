@@ -184,7 +184,15 @@ static int spawn_http_child(exporter_t *exp) {
         exp->dcgm_handle = 0;
         exp->dcgm_available = 0;
 
-        /* Drop capabilities and install seccomp (Phase 1: PR_SET_NO_NEW_PRIVS). */
+        /* Load TLS cert/key before seccomp (openat is not in the allowlist). */
+#ifdef WITH_TLS
+        if (http_child_tls_init(&exp->cfg) < 0) {
+            log_error("main: TLS init failed — exiting");
+            _exit(1);
+        }
+#endif
+
+        /* Drop capabilities and install seccomp. */
         procpriv_child_setup();
 
         /* Enter the HTTP serve loop — does not return. */

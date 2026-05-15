@@ -9,8 +9,12 @@
  *   Receiver thread  — drains IPC messages, updates g_slots[] under g_lock.
  *   Main thread      — HTTP accept loop; renders metrics from a locked copy.
  *
- * Known gaps:
- *   - ECC volatile counters: not forwarded in snapshot (aggregate + rate are).
+ * TLS (WITH_TLS=1):
+ *   http_child_tls_init() must be called by the child before procpriv_child_setup().
+ *   It opens cert/key files and initialises mbedTLS state while openat(2) is still
+ *   permitted.  The seccomp filter installed by procpriv_child_setup() does not
+ *   need to allow openat — only getrandom (already in the whitelist) is required
+ *   at handshake time.
  */
 
 #include <arpa/inet.h>
@@ -28,6 +32,17 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+
+#ifdef WITH_TLS
+#  include <mbedtls/ctr_drbg.h>
+#  include <mbedtls/entropy.h>
+#  include <mbedtls/error.h>
+#  include <mbedtls/net_sockets.h>
+#  include <mbedtls/pk.h>
+#  include <mbedtls/ssl.h>
+#  include <mbedtls/version.h>
+#  include <mbedtls/x509_crt.h>
+#endif
 
 #include "http.h"
 #include "snapshot.h"
@@ -58,6 +73,95 @@ static volatile int    g_all_ready;     /* 1 when every slot has been populated 
 static volatile int    g_running   = 1; /* cleared by SIGTERM handler or IPC EOF */
 static pthread_mutex_t g_lock      = PTHREAD_MUTEX_INITIALIZER;
 static int             g_stale_ms;      /* /live threshold: 3 × poll_interval_s  */
+
+/* --------------------------------------------------------------------------
+ * TLS server state (process-local singleton; initialised before seccomp)
+ * -------------------------------------------------------------------------- */
+
+#ifdef WITH_TLS
+typedef struct {
+    mbedtls_ssl_config       conf;
+    mbedtls_x509_crt         cert;
+    mbedtls_pk_context       pk;
+    mbedtls_entropy_context  entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+} tls_srv_t;
+static tls_srv_t g_tls;
+static int       g_tls_enabled;
+#endif
+
+/* --------------------------------------------------------------------------
+ * Connection abstraction — wraps a client fd with an optional TLS layer.
+ * All request I/O goes through conn_read / conn_write / conn_close so that
+ * the rest of the HTTP logic is identical for plain and TLS connections.
+ * -------------------------------------------------------------------------- */
+
+typedef struct {
+    int fd;
+#ifdef WITH_TLS
+    mbedtls_ssl_context ssl;
+    mbedtls_net_context net;
+    int                 tls_active;
+#endif
+} conn_t;
+
+static ssize_t conn_read(conn_t *c, void *buf, size_t len) {
+#ifdef WITH_TLS
+    if (c->tls_active) {
+        int r;
+        do {
+            r = mbedtls_ssl_read(&c->ssl, (unsigned char *)buf, len);
+        } while (r == MBEDTLS_ERR_SSL_WANT_READ ||
+                 r == MBEDTLS_ERR_SSL_WANT_WRITE);
+        return (ssize_t)r;
+    }
+#endif
+    return read(c->fd, buf, len);
+}
+
+/* mbedTLS requires re-calling ssl_write with the same buffer on WANT_READ/WRITE,
+ * and may write fewer than len bytes per call.  We loop here so conn_write_all
+ * sees plain-write semantics on both paths. */
+static ssize_t conn_write(conn_t *c, const void *buf, size_t len) {
+#ifdef WITH_TLS
+    if (c->tls_active) {
+        size_t done = 0;
+        const unsigned char *p = (const unsigned char *)buf;
+        while (done < len) {
+            int r;
+            do {
+                r = mbedtls_ssl_write(&c->ssl, p + done, len - done);
+            } while (r == MBEDTLS_ERR_SSL_WANT_READ ||
+                     r == MBEDTLS_ERR_SSL_WANT_WRITE);
+            if (r < 0) return (ssize_t)r;
+            done += (size_t)r;
+        }
+        return (ssize_t)done;
+    }
+#endif
+    return write(c->fd, buf, len);
+}
+
+static void conn_close(conn_t *c) {
+#ifdef WITH_TLS
+    if (c->tls_active) {
+        mbedtls_ssl_close_notify(&c->ssl);
+        mbedtls_ssl_free(&c->ssl);
+        mbedtls_net_free(&c->net);  /* closes c->net.fd == c->fd */
+        c->tls_active = 0;
+        c->fd = -1;
+        return;
+    }
+#endif
+    if (c->fd >= 0) {
+        close(c->fd);
+        c->fd = -1;
+    }
+}
+
+#ifdef WITH_TLS
+static int tls_wrap_client(conn_t *c);
+#endif
 
 /* --------------------------------------------------------------------------
  * Signal handling
@@ -812,9 +916,9 @@ static int check_liveness(void) {
  * HTTP helpers
  * -------------------------------------------------------------------------- */
 
-static int write_all(int fd, const char *buf, size_t len) {
+static int conn_write_all(conn_t *c, const char *buf, size_t len) {
     while (len > 0) {
-        ssize_t n = write(fd, buf, len);
+        ssize_t n = conn_write(c, buf, len);
         if (n <= 0) {
             if (n < 0 && errno == EINTR) continue;
             return -1;
@@ -825,7 +929,7 @@ static int write_all(int fd, const char *buf, size_t len) {
     return 0;
 }
 
-static int write_response(int fd, int status,
+static int write_response(conn_t *c, int status,
                            const char *body, size_t body_len,
                            const char *content_type) {
     const char *status_text;
@@ -849,8 +953,8 @@ static int write_response(int fd, int status,
     if (hlen < 0 || (size_t)hlen >= sizeof(header))
         return -1;
 
-    if (write_all(fd, header, (size_t)hlen) < 0) return -1;
-    if (body_len > 0 && write_all(fd, body, body_len) < 0) return -1;
+    if (conn_write_all(c, header, (size_t)hlen) < 0) return -1;
+    if (body_len > 0 && conn_write_all(c, body, body_len) < 0) return -1;
     return 0;
 }
 
@@ -860,11 +964,11 @@ static int write_response(int fd, int status,
  * method_out and path_out point into buf on success.
  * Returns 0 on success, -1 on error or malformed request.
  */
-static int read_request_line(int fd, char *buf, size_t cap,
+static int read_request_line(conn_t *c, char *buf, size_t cap,
                               char **method_out, char **path_out) {
     size_t pos = 0;
     while (pos < cap - 1) {
-        ssize_t n = read(fd, buf + pos, cap - pos - 1);
+        ssize_t n = conn_read(c, buf + pos, cap - pos - 1);
         if (n <= 0) {
             if (n < 0 && errno == EINTR) continue;
             return -1;
@@ -897,10 +1001,10 @@ static int read_request_line(int fd, char *buf, size_t cap,
  * Request dispatch
  * -------------------------------------------------------------------------- */
 
-static void handle_request(int fd, const char *method, const char *path) {
+static void handle_request(conn_t *c, const char *method, const char *path) {
     if (strcmp(method, "GET") != 0) {
         const char body[] = "Method Not Allowed\n";
-        write_response(fd, 405, body, sizeof(body) - 1, "text/plain");
+        write_response(c, 405, body, sizeof(body) - 1, "text/plain");
         return;
     }
 
@@ -908,35 +1012,35 @@ static void handle_request(int fd, const char *method, const char *path) {
         char *buf = malloc(METRICS_BUF_SIZE);
         if (!buf) {
             const char body[] = "Internal Server Error\n";
-            write_response(fd, 500, body, sizeof(body) - 1, "text/plain");
+            write_response(c, 500, body, sizeof(body) - 1, "text/plain");
             return;
         }
         size_t len = render_metrics(buf, METRICS_BUF_SIZE);
-        write_response(fd, 200, buf, len,
+        write_response(c, 200, buf, len,
                        "text/plain; version=0.0.4; charset=utf-8");
         free(buf);
 
     } else if (strcmp(path, "/ready") == 0) {
         if (g_all_ready) {
             const char body[] = "ready\n";
-            write_response(fd, 200, body, sizeof(body) - 1, "text/plain");
+            write_response(c, 200, body, sizeof(body) - 1, "text/plain");
         } else {
             const char body[] = "not ready\n";
-            write_response(fd, 503, body, sizeof(body) - 1, "text/plain");
+            write_response(c, 503, body, sizeof(body) - 1, "text/plain");
         }
 
     } else if (strcmp(path, "/live") == 0) {
         if (check_liveness()) {
             const char body[] = "alive\n";
-            write_response(fd, 200, body, sizeof(body) - 1, "text/plain");
+            write_response(c, 200, body, sizeof(body) - 1, "text/plain");
         } else {
             const char body[] = "stale\n";
-            write_response(fd, 503, body, sizeof(body) - 1, "text/plain");
+            write_response(c, 503, body, sizeof(body) - 1, "text/plain");
         }
 
     } else {
         const char body[] = "Not Found\n";
-        write_response(fd, 404, body, sizeof(body) - 1, "text/plain");
+        write_response(c, 404, body, sizeof(body) - 1, "text/plain");
     }
 }
 
@@ -977,15 +1081,138 @@ static void http_accept_loop(int listen_fd) {
         setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO,
                    &timeout, sizeof(timeout));
 
+        conn_t conn = { .fd = client_fd };
+
+#ifdef WITH_TLS
+        if (g_tls_enabled && tls_wrap_client(&conn) < 0) {
+            conn_close(&conn);
+            continue;
+        }
+#endif
+
         char req_buf[REQ_BUF_SIZE];
         char *method, *path;
-        if (read_request_line(client_fd, req_buf, sizeof(req_buf),
+        if (read_request_line(&conn, req_buf, sizeof(req_buf),
                               &method, &path) == 0) {
-            handle_request(client_fd, method, path);
+            handle_request(&conn, method, path);
         }
-        close(client_fd);
+        conn_close(&conn);
     }
 }
+
+/* --------------------------------------------------------------------------
+ * TLS per-connection setup and process-level initialisation
+ * -------------------------------------------------------------------------- */
+
+#ifdef WITH_TLS
+
+static int tls_wrap_client(conn_t *c) {
+    c->net.fd = c->fd;
+    mbedtls_ssl_init(&c->ssl);
+
+    int ret = mbedtls_ssl_setup(&c->ssl, &g_tls.conf);
+    if (ret == 0) {
+        mbedtls_ssl_set_bio(&c->ssl, &c->net,
+                            mbedtls_net_send, mbedtls_net_recv, NULL);
+        do {
+            ret = mbedtls_ssl_handshake(&c->ssl);
+        } while (ret == MBEDTLS_ERR_SSL_WANT_READ ||
+                 ret == MBEDTLS_ERR_SSL_WANT_WRITE);
+    }
+
+    if (ret != 0) {
+        char errbuf[80];
+        mbedtls_strerror(ret, errbuf, sizeof(errbuf));
+        log_warn("http: TLS handshake failed: %s", errbuf);
+        mbedtls_ssl_free(&c->ssl);
+        return -1;
+    }
+    c->tls_active = 1;
+    return 0;
+}
+
+/*
+ * http_child_tls_init — load cert and key, seed PRNG, configure mbedTLS.
+ *
+ * MUST be called in the child process before procpriv_child_setup() because
+ * it opens files (cert, key) which require openat(2).  After seccomp is
+ * installed, no file opens are needed: handshake crypto uses the pre-seeded
+ * ctr_drbg which calls getrandom(2), already in the seccomp allowlist.
+ *
+ * Returns 0 on success, -1 on any failure.
+ * If tls_cert_path is empty, TLS remains disabled and 0 is returned.
+ */
+int http_child_tls_init(const gpu_config_t *cfg) {
+    if (cfg->tls_cert_path[0] == '\0') {
+        log_info("http: TLS not configured — serving plain HTTP");
+        return 0;
+    }
+    if (cfg->tls_key_path[0] == '\0') {
+        log_error("http: tls_cert_path set but tls_key_path is empty");
+        return -1;
+    }
+
+    mbedtls_ssl_config_init(&g_tls.conf);
+    mbedtls_x509_crt_init(&g_tls.cert);
+    mbedtls_pk_init(&g_tls.pk);
+    mbedtls_entropy_init(&g_tls.entropy);
+    mbedtls_ctr_drbg_init(&g_tls.ctr_drbg);
+
+    const char *pers = "gpu_health_exporter";
+    int ret = mbedtls_ctr_drbg_seed(&g_tls.ctr_drbg, mbedtls_entropy_func,
+                                     &g_tls.entropy,
+                                     (const unsigned char *)pers, strlen(pers));
+    if (ret != 0) {
+        log_error("http: TLS: ctr_drbg_seed failed (%d)", ret);
+        return -1;
+    }
+
+    ret = mbedtls_x509_crt_parse_file(&g_tls.cert, cfg->tls_cert_path);
+    if (ret != 0) {
+        char errbuf[80];
+        mbedtls_strerror(ret, errbuf, sizeof(errbuf));
+        log_error("http: TLS: failed to load cert '%s': %s",
+                  cfg->tls_cert_path, errbuf);
+        return -1;
+    }
+
+#if MBEDTLS_VERSION_MAJOR >= 3
+    ret = mbedtls_pk_parse_keyfile(&g_tls.pk, cfg->tls_key_path, NULL,
+                                    0, mbedtls_ctr_drbg_random, &g_tls.ctr_drbg);
+#else
+    ret = mbedtls_pk_parse_keyfile(&g_tls.pk, cfg->tls_key_path, NULL);
+#endif
+    if (ret != 0) {
+        char errbuf[80];
+        mbedtls_strerror(ret, errbuf, sizeof(errbuf));
+        log_error("http: TLS: failed to load key '%s': %s",
+                  cfg->tls_key_path, errbuf);
+        return -1;
+    }
+
+    ret = mbedtls_ssl_config_defaults(&g_tls.conf,
+                                       MBEDTLS_SSL_IS_SERVER,
+                                       MBEDTLS_SSL_TRANSPORT_STREAM,
+                                       MBEDTLS_SSL_PRESET_DEFAULT);
+    if (ret != 0) {
+        log_error("http: TLS: ssl_config_defaults failed (%d)", ret);
+        return -1;
+    }
+
+    mbedtls_ssl_conf_rng(&g_tls.conf, mbedtls_ctr_drbg_random, &g_tls.ctr_drbg);
+
+    ret = mbedtls_ssl_conf_own_cert(&g_tls.conf, &g_tls.cert, &g_tls.pk);
+    if (ret != 0) {
+        log_error("http: TLS: ssl_conf_own_cert failed (%d)", ret);
+        return -1;
+    }
+
+    g_tls_enabled = 1;
+    log_info("http: TLS enabled (cert=%s)", cfg->tls_cert_path);
+    return 0;
+}
+
+#endif  /* WITH_TLS */
 
 /* --------------------------------------------------------------------------
  * Listen socket setup

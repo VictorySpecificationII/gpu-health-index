@@ -343,15 +343,27 @@ dcgm_retry_interval_s = 60
 
 
 # ---------------------------------------------------------------------------
-# TLS (Phase 2 — not yet implemented)
+# TLS
 # ---------------------------------------------------------------------------
 #
-# When built with WITH_TLS=1, the HTTP server wraps accepted connections
-# with mbedTLS. Leave empty to use plain HTTP (current default).
+# When built with WITH_TLS=1 (links mbedTLS), the HTTP server wraps accepted
+# connections with TLS. Leave both paths empty for plain HTTP (default).
 # Both paths must be set together or both left empty.
+#
+# Build with TLS:
+#   make WITH_TLS=1
+#
+# Generate a self-signed certificate (for internal/management use):
+#   openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \
+#     -days 3650 -nodes -subj "/CN=$(hostname)"
+#   install -Dm600 server.key /etc/gpu-health/tls/server.key
+#   install -Dm644 server.crt /etc/gpu-health/tls/server.crt
+#   chown gpu-health:gpu-health /etc/gpu-health/tls/server.key
+#
+# If using a CA-signed certificate, include the full chain in server.crt.
 
-# Path to the PEM-encoded TLS certificate.
+# Path to the PEM-encoded TLS certificate (or full chain).
 # tls_cert_path = /etc/gpu-health/tls/server.crt
 
-# Path to the PEM-encoded TLS private key.
+# Path to the PEM-encoded TLS private key (unencrypted).
 # tls_key_path = /etc/gpu-health/tls/server.key
