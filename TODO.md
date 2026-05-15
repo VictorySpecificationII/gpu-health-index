@@ -50,7 +50,7 @@
 - [x] HTTP parser audit — no vulnerabilities found; buffer bounds tight (REQ_BUF_SIZE=4096), slow loris mitigated by SO_RCVTIMEO=5s, no FS access in request handling, response headers use only static strings; `g_running` corrected to `volatile sig_atomic_t`
 
 ### Operational
-- [x] Runbook — `deploy/runbook.md`: covers all 11 alerts with diagnosis steps, remediation table, false positives, and escalation criteria
+- [x] Runbook — `docs/runbooks/`: one file per alert, index at `docs/runbooks/README.md`; diagnosis steps, remediation table, false positives, escalation criteria
 - [x] Log rotation — journald handles rotation; default RateLimitBurst (10000/30s) not a concern; steady-state INFO log volume is near-zero; documented in README
 
 ---
