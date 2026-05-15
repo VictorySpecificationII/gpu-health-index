@@ -1,0 +1,301 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+# Timing reference:
+#   for: 1m  → fires at eval_time 2m (pending at 1m, firing at 2m)
+#   for: 2m  → fires at eval_time 3m
+#   for: 5m  → fires at eval_time 6m
+#   for: 25h → fires at eval_time 25h1m (1501m)
+
+tests:
+
+  # ---------------------------------------------------------------------------
+  # GpuExporterDown — up == 0 for 1m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="gpu-health",instance="host:9108"}'
+        values: '1 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: GpuExporterDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: GpuExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: gpu-health
+              instance: "host:9108"
+            exp_annotations:
+              summary: "GPU health exporter unreachable (host:9108)"
+              description: "Prometheus cannot scrape host:9108. The exporter process may have crashed or the host is unreachable."
+
+  # Confirm alert clears when exporter recovers
+  - interval: 1m
+    input_series:
+      - series: 'up{job="gpu-health",instance="host:9108"}'
+        values: '1 0 0 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: GpuExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: gpu-health
+              instance: "host:9108"
+            exp_annotations:
+              summary: "GPU health exporter unreachable (host:9108)"
+              description: "Prometheus cannot scrape host:9108. The exporter process may have crashed or the host is unreachable."
+      - eval_time: 4m
+        alertname: GpuExporterDown
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # GpuUnavailable — gpu_available == 0 for 1m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_available{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '1 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: GpuUnavailable
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: GpuUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU NVML unavailable (host:9108, serial 1234)"
+              description: "NVML is no longer responding for GPU serial 1234 on host:9108. Error threshold exceeded — device may have fallen off the bus."
+
+  # ---------------------------------------------------------------------------
+  # GpuDcgmUnavailable — gpu_dcgm_available == 0 for 2m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_dcgm_available{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: GpuDcgmUnavailable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: GpuDcgmUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "DCGM unavailable (host:9108, serial 1234)"
+              description: "DCGM is not connected or not responding for host:9108. Board power, energy, memory bandwidth, and violation counters are unavailable. DCGM is operationally required on this fleet."
+
+  # ---------------------------------------------------------------------------
+  # GpuDecommissionCandidate — gpu_health_class == 4 for 5m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_health_class{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '1 4 4 4 4 4 4 4'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GpuDecommissionCandidate
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GpuDecommissionCandidate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU decommission candidate (host:9108, serial 1234)"
+              description: "GPU serial 1234 on host:9108 has health score below 50 for 5 minutes. Investigate before returning to workload pool."
+
+  # ---------------------------------------------------------------------------
+  # GpuDegrading — gpu_health_class == 3 for 5m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_health_class{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '1 3 3 3 3 3 3 3'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GpuDegrading
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GpuDegrading
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU degrading (host:9108, serial 1234)"
+              description: "GPU serial 1234 on host:9108 has health score between 50–70. Monitor closely — may progress to decommission candidate."
+
+  # ---------------------------------------------------------------------------
+  # GpuTelemetryIncomplete — gpu_telemetry_ok == 0 for 5m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_telemetry_ok{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '1 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GpuTelemetryIncomplete
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GpuTelemetryIncomplete
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU telemetry incomplete — score withheld (host:9108, serial 1234)"
+              description: "Fewer samples than expected in the scoring window for GPU 1234 on host:9108. Score is suppressed. Check poll thread health and NVML connectivity."
+
+  # ---------------------------------------------------------------------------
+  # GpuEccDoubleBitError — gpu_ecc_dbe_in_window == 1 for 1m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_ecc_dbe_in_window{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '0 1 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: GpuEccDoubleBitError
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: GpuEccDoubleBitError
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU ECC double-bit error (host:9108, serial 1234)"
+              description: "Active ECC double-bit error detected for GPU 1234 on host:9108. This indicates uncorrectable memory corruption. Drain workloads and inspect immediately."
+
+  # ---------------------------------------------------------------------------
+  # GpuHighEccSbeRate — gpu_ecc_sbe_rate_per_hour > 100 for 5m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_ecc_sbe_rate_per_hour{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '0 150 150 150 150 150 150 150'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GpuHighEccSbeRate
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GpuHighEccSbeRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU ECC single-bit error rate elevated (host:9108, serial 1234)"
+              description: "ECC SBE rate is 150.0/hr for GPU 1234 on host:9108 (threshold: 100/hr). Elevated SBE rate is a leading indicator of hardware degradation."
+
+  # ---------------------------------------------------------------------------
+  # GpuRowRemapFailure — gpu_row_remap_failures > 0 for 1m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_row_remap_failures{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '0 2 2 2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: GpuRowRemapFailure
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: GpuRowRemapFailure
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU row remap failure (host:9108, serial 1234)"
+              description: "GPU 1234 on host:9108 has 2 row remapping failure(s). Row remap failures are irreversible — this GPU requires decommission evaluation."
+
+  # ---------------------------------------------------------------------------
+  # GpuPcieLinkDegraded — current gen < max gen for 2m
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_pcie_link_gen{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '4 3 3 3 3'
+      - series: 'gpu_pcie_link_gen_max{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '4 4 4 4 4'
+      - series: 'gpu_pcie_link_width{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '16 16 16 16 16'
+      - series: 'gpu_pcie_link_width_max{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '16 16 16 16 16'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: GpuPcieLinkDegraded
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: GpuPcieLinkDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU PCIe link degraded (host:9108, serial 1234)"
+              description: "GPU 1234 on host:9108 is running at a degraded PCIe link. Check for loose seating or BIOS-level link negotiation issues."
+
+  # ---------------------------------------------------------------------------
+  # GpuProbeResultStale — gpu_probe_result_stale == 1 for 25h
+  # ---------------------------------------------------------------------------
+
+  - interval: 1m
+    input_series:
+      - series: 'gpu_probe_result_stale{serial="1234",instance="host:9108",job="gpu-health"}'
+        values: '0 1+0x1501'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: GpuProbeResultStale
+        exp_alerts: []
+      - eval_time: 25h1m
+        alertname: GpuProbeResultStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: "1234"
+              instance: "host:9108"
+              job: gpu-health
+            exp_annotations:
+              summary: "GPU probe result stale (host:9108, serial 1234)"
+              description: "The cuBLAS probe result for GPU 1234 on host:9108 is older than the configured TTL. Check that gpu-health-probe.timer is active and the probe binary is installed."

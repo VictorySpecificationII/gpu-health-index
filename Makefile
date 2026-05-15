@@ -35,7 +35,7 @@ TEST_OBJS := $(patsubst $(SRCDIR)/%.c, $(BUILDDIR)/%.o, $(TEST_SRCS))
 
 BINARY := gpu-health-exporter
 
-.PHONY: all test clean install
+.PHONY: all test test-alerts clean install
 
 # Binary target only available once main.c exists; until then 'all' just compiles objects.
 ifneq ($(wildcard $(SRCDIR)/main.c),)
@@ -74,6 +74,17 @@ test: $(TEST_BINS)
 
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(TEST_OBJS) | $(BUILDDIR)
 	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $^ $(LDFLAGS)
+
+# ---- Alert tests ------------------------------------------------------------
+
+ALERTS_DIR   := deploy/monitoring/prometheus
+PROMTOOL     ?= docker run --rm --entrypoint promtool \
+                    -v $(CURDIR)/$(ALERTS_DIR):/rules \
+                    prom/prometheus:latest
+
+test-alerts:
+	$(PROMTOOL) check rules /rules/alerts.yml
+	$(PROMTOOL) test rules /rules/alerts_test.yml
 
 # ---- Install ----------------------------------------------------------------
 

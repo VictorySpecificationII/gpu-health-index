@@ -660,6 +660,22 @@ static size_t render_metrics(char *buf, size_t cap) {
     /* ------------------------------------------------------------------ */
     /* 8. Interconnects                                                    */
     /* ------------------------------------------------------------------ */
+    M_HEADER("gpu_pcie_link_gen_max", "gauge",
+             "Maximum supported PCIe link generation (negotiated at boot)");
+    for (int i = 0; i < n; i++) {
+        if (!slots[i].received) continue;
+        M_GAUGE_I("gpu_pcie_link_gen_max", slots[i].snap.serial,
+                  slots[i].snap.pcie_link_gen_max);
+    }
+
+    M_HEADER("gpu_pcie_link_width_max", "gauge",
+             "Maximum supported PCIe link width in lanes (negotiated at boot)");
+    for (int i = 0; i < n; i++) {
+        if (!slots[i].received) continue;
+        M_GAUGE_I("gpu_pcie_link_width_max", slots[i].snap.serial,
+                  slots[i].snap.pcie_link_width_max);
+    }
+
     M_HEADER("gpu_pcie_link_gen", "gauge",
              "Current PCIe link generation");
     for (int i = 0; i < n; i++) {

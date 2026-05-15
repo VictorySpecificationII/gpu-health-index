@@ -411,6 +411,8 @@ cardinality bloat and series discontinuity when metadata changes.
 
 | Metric | Type | Description |
 |---|---|---|
+| `gpu_pcie_link_gen_max` | Gauge | Maximum supported PCIe link generation |
+| `gpu_pcie_link_width_max` | Gauge | Maximum supported PCIe link width in lanes |
 | `gpu_pcie_link_gen` | Gauge | Current PCIe link generation |
 | `gpu_pcie_link_width` | Gauge | Current PCIe lane count |
 | `gpu_pcie_replay_total` | Counter | PCIe replay counter |
