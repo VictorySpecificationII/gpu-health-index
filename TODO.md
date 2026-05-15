@@ -47,7 +47,7 @@
 - [ ] Local fallback — if S3 not configured, append to `{serial}.history` in state_dir for bare metal single-node setups
 
 ### Security
-- [ ] HTTP parser audit — review `read_request_line` against malformed/oversized input; confirm no path traversal or header injection surface
+- [x] HTTP parser audit — no vulnerabilities found; buffer bounds tight (REQ_BUF_SIZE=4096), slow loris mitigated by SO_RCVTIMEO=5s, no FS access in request handling, response headers use only static strings; `g_running` corrected to `volatile sig_atomic_t`
 
 ### Operational
 - [ ] Runbook — what on-call does when `gpu_health_class=4` fires, DCGM drops, probe goes stale, ECC DBE appears

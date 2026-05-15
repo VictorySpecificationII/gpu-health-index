@@ -70,7 +70,7 @@ typedef struct {
 static http_slot_t    *g_slots;
 static int             g_num_gpus;
 static volatile int    g_all_ready;     /* 1 when every slot has been populated  */
-static volatile int    g_running   = 1; /* cleared by SIGTERM handler or IPC EOF */
+static volatile sig_atomic_t g_running = 1; /* cleared by SIGTERM handler or IPC EOF */
 static pthread_mutex_t g_lock      = PTHREAD_MUTEX_INITIALIZER;
 static int             g_stale_ms;      /* /live threshold: 3 × poll_interval_s  */
 
