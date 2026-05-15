@@ -1,0 +1,35 @@
+[Unit]
+Description=GPU Health Probe (cuBLAS BF16 GEMM)
+Documentation=https://github.com/VictorySpecificationII/gpu-health-index
+After=gpu-health.service
+ConditionPathExists=/usr/local/bin/gpu_health_probe
+
+# This unit runs a sustained GPU compute workload to measure performance/W.
+# Do not run on nodes serving production compute jobs unless scheduled during
+# a maintenance window. On dedicated health-monitoring fleet nodes this is safe.
+
+[Service]
+Type=oneshot
+
+ExecStart=/usr/local/bin/gpu-health-probe-run
+
+# Run as the same service account as the exporter so it can write to state_dir.
+User=gpu-health
+Group=gpu-health
+SupplementaryGroups=render
+
+# Ensure /var/run/gpu-health exists; preserve it after the oneshot exits so
+# the exporter can still find the .probe file.
+RuntimeDirectory=gpu-health
+RuntimeDirectoryPreserve=yes
+
+# Per-GPU probe takes up to duration + warmup seconds. For 8 GPUs at 300s
+# each, allow up to 1 hour before systemd gives up.
+TimeoutStartSec=3600
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gpu-health-probe
+
+[Install]
+WantedBy=multi-user.target

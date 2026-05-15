@@ -33,6 +33,7 @@
 #include "collector.h"
 #include "config.h"
 #include "dcgm.h"
+#include "filesd.h"
 #include "http.h"
 #include "nvml.h"
 #include "procpriv.h"
@@ -164,22 +165,34 @@ static int spawn_http_child(exporter_t *exp) {
         if (exp->parent_fd >= 0)
             close(exp->parent_fd);
 
+
         /*
-         * Shut down NVML and DCGM — the child must not use these.
-         * After fork() there are no poll threads in the child (POSIX:
-         * only the calling thread is duplicated), so it is safe to call
-         * Shutdown() without locks.
+         * Do NOT call NVML/DCGM teardown in the forked child.
+         *
+         * These libraries were initialized in the parent before fork().
+         * Their internal state is not guaranteed to be fork-safe, and
+         * nvmlShutdown() may segfault in the child.
+         *
+         * The HTTP child must never use NVML/DCGM; ownership and teardown
+         * remain entirely in the parent.
          */
-        if (exp->nvml.Shutdown)
-            exp->nvml.Shutdown();
-        nvml_unload(exp->nvml_dl);
+        memset(&exp->nvml, 0, sizeof(exp->nvml));
+        exp->nvml_dl = NULL;
 
-        if (exp->dcgm_available) {
-            dcgm_teardown(&exp->dcgm, exp->dcgm_handle);
-            dcgm_unload(exp->dcgm_dl);
+        memset(&exp->dcgm, 0, sizeof(exp->dcgm));
+        exp->dcgm_dl = NULL;
+        exp->dcgm_handle = 0;
+        exp->dcgm_available = 0;
+
+        /* Load TLS cert/key before seccomp (openat is not in the allowlist). */
+#ifdef WITH_TLS
+        if (http_child_tls_init(&exp->cfg) < 0) {
+            log_error("main: TLS init failed — exiting");
+            _exit(1);
         }
+#endif
 
-        /* Drop capabilities and install seccomp (Phase 1: PR_SET_NO_NEW_PRIVS). */
+        /* Drop capabilities and install seccomp. */
         procpriv_child_setup();
 
         /* Enter the HTTP serve loop — does not return. */
@@ -609,9 +622,10 @@ int main(int argc, char **argv) {
     }
 
     /* ------------------------------------------------------------------ */
-    /* 10. sd_notify READY=1                                              */
+    /* 10. sd_notify READY=1, write Prometheus file_sd target             */
     /* ------------------------------------------------------------------ */
     sd_notify_ready();
+    filesd_write(&exp.cfg);
 
     /* ------------------------------------------------------------------ */
     /* 11. Steady-state monitor loop                                      */
@@ -652,6 +666,7 @@ int main(int argc, char **argv) {
     /* ------------------------------------------------------------------ */
     /* 12. Graceful shutdown                                              */
     /* ------------------------------------------------------------------ */
+    filesd_remove(&exp.cfg);
     shutdown_all(&exp);
 
     log_info("main: exited cleanly");

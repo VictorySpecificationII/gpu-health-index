@@ -85,8 +85,8 @@ int nvml_load(nvml_vtable_t *vt, void **dl_handle)
     LOAD_REQ(DeviceGetPowerUsage,                "nvmlDeviceGetPowerUsage",  NULL);
     LOAD_REQ(DeviceGetEnforcedPowerLimit,        "nvmlDeviceGetEnforcedPowerLimit", NULL);
     LOAD_REQ(DeviceGetTotalEccErrors,            "nvmlDeviceGetTotalEccErrors", NULL);
-    LOAD_REQ(DeviceGetMemoryInfo,                "nvmlDeviceGetMemoryInfo_v2",
-                                                 "nvmlDeviceGetMemoryInfo");
+    LOAD_REQ(DeviceGetMemoryInfo,                "nvmlDeviceGetMemoryInfo",
+                                                 "nvmlDeviceGetMemoryInfo_v2");
     LOAD_REQ(DeviceGetClockInfo,                 "nvmlDeviceGetClockInfo",   NULL);
     LOAD_REQ(DeviceGetUtilizationRates,          "nvmlDeviceGetUtilizationRates", NULL);
     LOAD_REQ(DeviceGetCurrentClocksThrottleReasons,
@@ -105,14 +105,15 @@ int nvml_load(nvml_vtable_t *vt, void **dl_handle)
     do {                                                                       \
         *(void **)(&vt->member) = sym(dl, primary, fallback);                  \
         if (!vt->member)                                                       \
-            log_debug("nvml: optional symbol '%s' unavailable", primary);     \
+            log_debug("nvml: optional symbol '%s' unavailable", primary);      \
     } while (0)
 
-    LOAD_OPT(DeviceGetRetiredPages,    "nvmlDeviceGetRetiredPages",     NULL);
-    LOAD_OPT(DeviceGetRemappedRows,    "nvmlDeviceGetRemappedRows",     NULL);
-    LOAD_OPT(DeviceGetFanSpeed,        "nvmlDeviceGetFanSpeed",         NULL);
-    LOAD_OPT(DeviceGetPcieReplayCounter, "nvmlDeviceGetPcieReplayCounter", NULL);
-    LOAD_OPT(DeviceGetViolationStatus, "nvmlDeviceGetViolationStatus",  NULL);
+    LOAD_OPT(DeviceGetFieldValues,      "nvmlDeviceGetFieldValues",    NULL);
+    LOAD_OPT(DeviceGetRetiredPages,     "nvmlDeviceGetRetiredPages",   NULL);
+    LOAD_OPT(DeviceGetRemappedRows,     "nvmlDeviceGetRemappedRows",   NULL);
+    LOAD_OPT(DeviceGetFanSpeed,         "nvmlDeviceGetFanSpeed",       NULL);
+    LOAD_OPT(DeviceGetPcieReplayCounter,"nvmlDeviceGetPcieReplayCounter", NULL);
+    LOAD_OPT(DeviceGetViolationStatus,  "nvmlDeviceGetViolationStatus", NULL);
 
 #undef LOAD_OPT
 

@@ -243,6 +243,8 @@ typedef struct {
     uint64_t            baseline_age_s;
 
     /* Raw current state — all gpu_state_t fields, for /metrics rendering */
+    uint64_t            ecc_sbe_volatile;   /* latest ring sample — resets on driver reload */
+    uint64_t            ecc_dbe_volatile;
     uint64_t            ecc_sbe_aggregate;
     uint64_t            ecc_dbe_aggregate;
     uint32_t            retired_pages_sbe;
@@ -309,6 +311,7 @@ typedef struct {
 #define CFG_DEFAULT_STATE_DIR              "/var/run/gpu-health"
 #define CFG_DEFAULT_BASELINE_DIR           "/etc/gpu-health/baseline"
 #define CFG_DEFAULT_LISTEN_ADDR            "0.0.0.0"
+#define CFG_DEFAULT_FILE_SD_PATH           ""
 #define CFG_DEFAULT_LISTEN_PORT            9108
 #define CFG_DEFAULT_POLL_INTERVAL_S        1
 #define CFG_DEFAULT_WINDOW_S               300
@@ -415,6 +418,9 @@ typedef struct {
     int    dcgm_timeout_ms;
     int    dcgm_error_threshold;
     int    dcgm_retry_interval_s;
+
+    /* Prometheus file_sd — empty string disables */
+    char   file_sd_path[256];
 
     /* TLS (child only, WITH_TLS=1 build) */
     char   tls_cert_path[256];

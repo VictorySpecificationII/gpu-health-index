@@ -1,0 +1,15 @@
+[Unit]
+Description=GPU Health Probe Timer (daily cuBLAS BF16 GEMM)
+Documentation=https://github.com/VictorySpecificationII/gpu-health-index
+Requires=gpu-health.service
+
+[Timer]
+# Fire once per day at 02:00 local time.
+# RandomizedDelaySec spreads probes across a window on multi-node clusters
+# so all nodes don't hammer their GPUs simultaneously.
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

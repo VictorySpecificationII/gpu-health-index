@@ -44,8 +44,8 @@ by the parent if it exits.
 **Runtime:**
 - NVML (`libnvidia-ml.so`) in the dynamic linker path. Present on any host
   with NVIDIA drivers installed.
-- DCGM daemon (`nv-hostengine`) running on the host. `libdcgm.so` must be
-  in the dynamic linker path.
+- DCGM daemon (`nvidia-dcgm.service`) running on the host. `libdcgm.so` must
+  be in the dynamic linker path.
 - A writable `state_dir` (default: `/var/run/gpu-health`).
 
 **Supported GPUs:** Ampere (A100) and later. Blackwell supported natively
@@ -62,14 +62,19 @@ make
 # Debug build — AddressSanitizer + UBSan + debug symbols
 make DEBUG=1
 
-# With TLS support (requires mbedTLS)
+# With TLS support (requires libmbedtls-dev)
 make WITH_TLS=1
 
 # Run all tests (no GPU required — tests use a fake vtable)
 make test
+# Run TLS tests (exercises full handshake without a GPU)
+make WITH_TLS=1 build/test_http && ./build/test_http
 
 # Install to /usr/local/bin
 sudo make install PREFIX=/usr/local
+
+# Install with TLS support (also creates /etc/gpu-health/tls/)
+sudo make install PREFIX=/usr/local WITH_TLS=1
 ```
 
 Binary: `build/gpu-health-exporter`
@@ -79,10 +84,8 @@ Binary: `build/gpu-health-exporter`
 ## Quick start
 
 ```sh
-# Create the state directory (required — hard fail at startup if missing)
-sudo mkdir -p /var/run/gpu-health
-
-# Run with compiled-in defaults
+# Run with compiled-in defaults (state_dir created automatically by systemd
+# RuntimeDirectory when using the unit file; for manual runs create it first)
 sudo ./build/gpu-health-exporter
 
 # Or point at a config file
@@ -114,6 +117,7 @@ state_dir                   = /var/run/gpu-health
 baseline_dir                = /etc/gpu-health/baseline
 listen_addr                 = 0.0.0.0
 listen_port                 = 9108
+file_sd_path                =   # Prometheus file_sd target file; empty = disabled
 
 # ── Polling ───────────────────────────────────────────────────────────
 poll_interval_s             = 1
@@ -190,19 +194,88 @@ tls_key_path                =
 The unit file is at [deploy/gpu-health.service](deploy/gpu-health.service).
 
 ```sh
-# Install binary, unit file, config directory, and example config
+# Install binary, unit file, config, service account, and correct permissions
 sudo make install PREFIX=/usr/local
 
-# Enable and start
+# Enable and start the exporter
 sudo systemctl daemon-reload
 sudo systemctl enable --now gpu-health
+
+# Optional: install the cuBLAS probe (requires CUDA toolkit) and enable daily timer
+make -C probe && sudo make -C probe install PREFIX=/usr/local
+sudo systemctl enable --now gpu-health-probe.timer
+# Force an immediate first run rather than waiting until 02:00:
+sudo systemctl start gpu-health-probe.service
 ```
 
+`sudo make install` handles the full setup:
+- Installs the binary and unit file
+- Creates the `gpu-health` system account (no shell, no home directory)
+- Adds it to the `render` group for `/dev/nvidia*` access
+- Sets `/etc/gpu-health/gpu-health.conf` to `root:gpu-health 0640`
+- Sets `/etc/gpu-health/baseline` to `root:gpu-health 0750`
+- `WITH_TLS=1` additionally creates `/etc/gpu-health/tls/` at `root:gpu-health 0750`
+
+**Optional: TLS (requires `WITH_TLS=1` build)**
+
+```sh
+# Generate a self-signed certificate (valid 10 years)
+sudo openssl req -x509 -newkey rsa:4096 \
+  -keyout /etc/gpu-health/tls/server.key \
+  -out /etc/gpu-health/tls/server.crt \
+  -days 3650 -nodes -subj "/CN=$(hostname)"
+sudo chown root:gpu-health /etc/gpu-health/tls/server.key /etc/gpu-health/tls/server.crt
+sudo chmod 0640 /etc/gpu-health/tls/server.key
+sudo chmod 0644 /etc/gpu-health/tls/server.crt
+```
+
+Add to `/etc/gpu-health/gpu-health.conf`:
+```
+tls_cert_path = /etc/gpu-health/tls/server.crt
+tls_key_path  = /etc/gpu-health/tls/server.key
+```
+
+Verify after service start:
+```sh
+curl --insecure https://localhost:9108/metrics | head -3
+openssl s_client -connect localhost:9108 -brief
+```
+
+Validated on H200: TLSv1.2, ECDHE-RSA-CHACHA20-POLY1305, secp521r1. Cert/key are loaded before the seccomp filter is installed — no additional syscall allowances required.
+
 Key unit properties:
-- `Requires=nv-hostengine.service` — if the DCGM daemon stops, this unit stops with it
+- `Requires=nvidia-dcgm.service` — if the DCGM daemon stops, this unit stops with it
 - `RuntimeDirectory=gpu-health` — systemd creates `/var/run/gpu-health` automatically
 - `TimeoutStartSec=60s` — the exporter sends `READY=1` after the first successful poll on all GPUs; 60s gives margin for driver and DCGM init on large GPU counts
 - `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
+- `User=gpu-health`, `ProtectSystem=strict`, `PrivateTmp=yes` — runs as a dedicated account with filesystem isolation
+
+**Prometheus file_sd (multi-node bare metal):**
+
+Set `file_sd_path` in the config to have the exporter write its scrape target automatically at startup and remove it on clean shutdown:
+
+```sh
+sudo mkdir -p /etc/prometheus/file_sd/gpu-health
+```
+
+```
+# /etc/gpu-health/gpu-health.conf
+file_sd_path = /var/run/gpu-health/file_sd.json
+```
+
+Then in `prometheus.yml`:
+```yaml
+scrape_configs:
+  - job_name: gpu-health
+    file_sd_configs:
+      - files: ['/var/run/gpu-health/file_sd.json']
+        refresh_interval: 60s
+```
+
+`/var/run/gpu-health` is managed by `RuntimeDirectory=gpu-health` and is always
+writable by the service. Paths under `/etc` are not writable under `ProtectSystem=strict`.
+
+Each node writes its own file. Prometheus discovers all of them automatically. No static `scrape_configs` entry per node.
 
 ### Kubernetes (DaemonSet)
 
@@ -281,7 +354,6 @@ cardinality bloat and series discontinuity when metadata changes.
 |---|---|---|
 | `gpu_info` | Gauge | Always 1. Labels: serial, uuid, model, driver, index, pcie_gen_max, pcie_width_max |
 | `gpu_identity_source` | Gauge | 0=serial number, 1=UUID fallback (serial unavailable) |
-| `gpu_present` | Gauge | 1 if GPU is responding; 0 if lost or error threshold exceeded |
 
 ### Windowed statistics (over scoring window)
 
@@ -326,6 +398,8 @@ cardinality bloat and series discontinuity when metadata changes.
 | `gpu_memory_free_bytes` | Gauge | Memory free |
 | `gpu_memory_total_bytes` | Gauge | Total memory capacity |
 | `gpu_memory_bandwidth_utilization_ratio` | Gauge | Memory BW utilization 0.0–1.0 (DCGM; NaN = DCGM anomaly) |
+| `gpu_ecc_sbe_volatile_total` | Counter | SBE count since last driver reload |
+| `gpu_ecc_dbe_volatile_total` | Counter | DBE count since last driver reload |
 | `gpu_ecc_sbe_aggregate_total` | Counter | Lifetime SBE count (does not reset on driver reload) |
 | `gpu_ecc_dbe_aggregate_total` | Counter | Lifetime DBE count |
 | `gpu_retired_pages_sbe` | Gauge | Pages retired due to SBE |
@@ -376,6 +450,9 @@ cardinality bloat and series discontinuity when metadata changes.
 | `gpu_health_exporter_info` | Gauge | Always 1. Label: version |
 | `gpu_dcgm_available` | Gauge | 1 if DCGM is connected and responding |
 | `gpu_health_last_poll_timestamp` | Gauge | Unix timestamp of last successful poll |
+| `gpu_present` | Gauge | 1 if GPU device is still visible; 0 if it disappeared mid-run |
+| `gpu_available` | Gauge | 1 if NVML is responding for this GPU; 0 if above error threshold |
+| `gpu_health_collector_errors_total` | Counter | Cumulative NVML call errors for this GPU |
 
 ---
 
@@ -448,9 +525,46 @@ The exporter reloads on change via inotify — no restart needed.
 **Kubernetes:** mount a ConfigMap at the same path. Kubelet propagates
 ConfigMap updates; inotify picks up the change.
 
-Baselines are produced by the companion `gpu_health_probe` binary (Phase 2,
-cuBLAS BF16 GEMM). The exporter exposes `gpu_baseline_available` and
-`gpu_baseline_age_seconds` for pipeline consumption.
+Baselines and periodic probe results are produced by the companion
+`gpu_health_probe` binary (`probe/gpu_health_probe.cu`), a cuBLAS BF16 GEMM
+workload. Build and install it separately (requires CUDA toolkit):
+
+```sh
+make -C probe
+sudo make -C probe install PREFIX=/usr/local
+```
+
+**Periodic runs (bare metal):** `sudo make install` installs
+`gpu-health-probe.service` and `gpu-health-probe.timer`. Enable after
+installing the probe binary:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now gpu-health-probe.timer
+```
+
+The timer fires daily at 02:00 with a random 30-minute spread across the
+cluster. To force an immediate run (e.g. at commissioning):
+
+```sh
+sudo systemctl start gpu-health-probe.service
+sudo journalctl -u gpu-health-probe -f --no-pager
+```
+
+The probe writes `{serial}.probe` to `state_dir`. The exporter picks it up
+immediately via inotify — no restart required. Probe results expire after
+`probe_ttl_s` (default 36 hours); `gpu_probe_result_stale` flips to 1 if a
+run is missed.
+
+**Establish a baseline** (first commissioning only):
+
+```sh
+sudo -u gpu-health /usr/local/bin/gpu_health_probe --establish-baseline \
+    -s /var/run/gpu-health -b /etc/gpu-health/baseline
+```
+
+The exporter exposes `gpu_baseline_available` and `gpu_baseline_age_seconds`
+for pipeline consumption.
 
 ---
 

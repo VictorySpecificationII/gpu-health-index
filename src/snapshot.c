@@ -67,6 +67,14 @@ void snapshot_update(gpu_ctx_t *ctx,
 
     /* --- Raw current state (for /metrics) ---------------------------------- */
     const gpu_state_t *st = &ctx->state;
+    s.ecc_sbe_volatile      = (ctx->ring.count > 0)
+                              ? ctx->ring.samples[(ctx->ring.head - 1 + ctx->ring.capacity)
+                                                  % ctx->ring.capacity].ecc_sbe_volatile
+                              : 0;
+    s.ecc_dbe_volatile      = (ctx->ring.count > 0)
+                              ? ctx->ring.samples[(ctx->ring.head - 1 + ctx->ring.capacity)
+                                                  % ctx->ring.capacity].ecc_dbe_volatile
+                              : 0;
     s.ecc_sbe_aggregate     = st->ecc_sbe_aggregate;
     s.ecc_dbe_aggregate     = st->ecc_dbe_aggregate;
     s.retired_pages_sbe     = st->retired_pages_sbe;

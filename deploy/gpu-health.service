@@ -1,11 +1,11 @@
 [Unit]
 Description=GPU Health Exporter
 Documentation=https://github.com/VictorySpecificationII/gpu-health-index
-After=network.target nv-hostengine.service
-Requires=nv-hostengine.service
+After=network.target nvidia-dcgm.service
+Requires=nvidia-dcgm.service
 
-# nv-hostengine is the DCGM daemon. It is operationally required — if it
-# stops, this unit stops with it. NVML alone gives an incomplete health
+# nvidia-dcgm.service is the DCGM daemon. It is operationally required — if
+# it stops, this unit stops with it. NVML alone gives an incomplete health
 # picture: board power, energy, memory bandwidth, NVLink, XID errors, and
 # violation counters all come from DCGM.
 
@@ -43,19 +43,30 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gpu-health
 
-# Security hardening — NOTE: procpriv.c is currently Phase 1 stubs
-# (PR_SET_NO_NEW_PRIVS only). Full capability drop + seccomp is Phase 2.
-# Once implemented, tighten to:
-#   User=gpu-health
-#   Group=gpu-health (must be in 'render' or 'video' group for /dev/nvidia*)
-#   CapabilityBoundingSet=CAP_DAC_OVERRIDE
-#   AmbientCapabilities=CAP_DAC_OVERRIDE
-#   NoNewPrivileges=yes
-#   PrivateTmp=yes
-#   ProtectSystem=strict
-#   ProtectHome=yes
-#   ReadWritePaths=/var/run/gpu-health
-# Until then the service runs as root.
+# Security hardening — two layers:
+# 1. procpriv.c: capset to all-zeros in both parent and child; seccomp-BPF
+#    allowlist in the HTTP child.
+# 2. systemd directives below: dedicated service account, filesystem isolation,
+#    no privilege escalation path.
+#
+# /dev/nvidia* access is granted via SupplementaryGroups=render.
+# If the render group is absent on your distro, substitute 'video'.
+#
+# CAP_DAC_OVERRIDE is retained only for the NVML init window before procpriv
+# drops all capabilities. It is not available during steady-state polling.
+#
+# If file_sd_path is set in the config, add the target directory here too:
+#   ReadWritePaths=/etc/prometheus/file_sd/gpu-health
+User=gpu-health
+Group=gpu-health
+SupplementaryGroups=render
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_DAC_OVERRIDE
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/run/gpu-health
 
 [Install]
 WantedBy=multi-user.target

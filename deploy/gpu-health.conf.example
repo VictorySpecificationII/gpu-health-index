@@ -45,6 +45,23 @@ listen_addr = 0.0.0.0
 # Range: 1–65535
 listen_port = 9108
 
+# Prometheus file_sd target file path (bare metal multi-node discovery).
+# When set, the exporter writes a JSON file at startup so Prometheus can
+# discover this node automatically without static scrape config.
+# Format: [{"targets":["hostname:port"],"labels":{"job":"gpu-health"}}]
+# The file is removed on clean shutdown (SIGTERM).
+# Leave empty (default) to disable — use static scrape_configs instead.
+# Prometheus file_sd_configs example:
+#   - job_name: gpu-health
+#     file_sd_configs:
+#       - files: ['/var/run/gpu-health/file_sd.json']
+#         refresh_interval: 60s
+# Note: /var/run/gpu-health is managed by systemd RuntimeDirectory and is
+# always writable by the service regardless of ProtectSystem= settings.
+# Paths under /etc are not writable under ProtectSystem=strict.
+# Range: any valid writable path, or empty to disable
+#file_sd_path = /var/run/gpu-health/file_sd.json
+
 
 # ---------------------------------------------------------------------------
 # Polling
@@ -326,15 +343,27 @@ dcgm_retry_interval_s = 60
 
 
 # ---------------------------------------------------------------------------
-# TLS (Phase 2 — not yet implemented)
+# TLS
 # ---------------------------------------------------------------------------
 #
-# When built with WITH_TLS=1, the HTTP server wraps accepted connections
-# with mbedTLS. Leave empty to use plain HTTP (current default).
+# When built with WITH_TLS=1 (links mbedTLS), the HTTP server wraps accepted
+# connections with TLS. Leave both paths empty for plain HTTP (default).
 # Both paths must be set together or both left empty.
+#
+# Build with TLS:
+#   make WITH_TLS=1
+#
+# Generate a self-signed certificate (for internal/management use):
+#   openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \
+#     -days 3650 -nodes -subj "/CN=$(hostname)"
+#   install -Dm600 server.key /etc/gpu-health/tls/server.key
+#   install -Dm644 server.crt /etc/gpu-health/tls/server.crt
+#   chown gpu-health:gpu-health /etc/gpu-health/tls/server.key
+#
+# If using a CA-signed certificate, include the full chain in server.crt.
 
-# Path to the PEM-encoded TLS certificate.
+# Path to the PEM-encoded TLS certificate (or full chain).
 # tls_cert_path = /etc/gpu-health/tls/server.crt
 
-# Path to the PEM-encoded TLS private key.
+# Path to the PEM-encoded TLS private key (unencrypted).
 # tls_key_path = /etc/gpu-health/tls/server.key

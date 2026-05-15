@@ -1,5 +1,6 @@
 #include <dlfcn.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "dcgm.h"
@@ -80,6 +81,14 @@ int dcgm_load(dcgm_vtable_t *vt, void **dl_handle)
         }                                                                      \
     } while (0)
 
+#define LOAD_OPT(member, primary, fallback)                                    \
+    do {                                                                       \
+        *(void **)(&vt->member) = sym(dl, primary, fallback);                  \
+        if (!vt->member)                                                       \
+            log_debug("dcgm: optional symbol '%s' not found — degraded "       \
+                      "error strings", primary);                               \
+    } while (0)
+
     LOAD_REQ(Init,             "dcgmInit",                                NULL);
     LOAD_REQ(Shutdown,         "dcgmShutdown",                            NULL);
     LOAD_REQ(Connect,          "dcgmConnect",                             NULL);
@@ -88,15 +97,38 @@ int dcgm_load(dcgm_vtable_t *vt, void **dl_handle)
     LOAD_REQ(GroupAddDevice,   "dcgmGroupAddDevice",                      NULL);
     LOAD_REQ(FieldGroupCreate, "dcgmFieldGroupCreate",                    NULL);
     LOAD_REQ(WatchFields,      "dcgmWatchFields",                         NULL);
-    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValues_v2",
+    /* DCGM 4.x: dcgmGetLatestValuesForFields is the correct per-GPU field
+     * read API.  dcgmGetLatestValues requires a group/field-group watch to
+     * have populated the cache first; dcgmGetLatestValuesForFields handles
+     * the watch lifecycle internally.  Fall back to v1 for older builds. */
+    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValuesForFields",
                                "dcgmGetLatestValues");
-    LOAD_REQ(ErrorString,      "dcgmErrorString",                         NULL);
+    /* DCGM 4.x requires an explicit UpdateAllFields trigger before reading
+     * values even in daemon mode.  Optional: absent on older DCGM versions. */
+    LOAD_OPT(UpdateAllFields,  "dcgmUpdateAllFields",                     NULL);
+    LOAD_OPT(ErrorString,      "dcgmErrorString",                         NULL);
 
+#undef LOAD_OPT
 #undef LOAD_REQ
 
     *dl_handle = dl;
     log_info("dcgm: all required symbols resolved");
     return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * dcgm_strerror — NULL-safe wrapper around the optional ErrorString pointer.
+ * DCGM 4.x removed dcgmErrorString from its public ABI; fall back to a
+ * numeric representation so the rest of the error path is unaffected.
+ * ------------------------------------------------------------------------- */
+
+static const char *dcgm_strerror(dcgm_vtable_t *vt, int ret)
+{
+    static _Thread_local char buf[32];
+    if (vt->ErrorString)
+        return vt->ErrorString(ret);
+    snprintf(buf, sizeof(buf), "error %d", ret);
+    return buf;
 }
 
 /* -------------------------------------------------------------------------
@@ -119,13 +151,14 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
     int ret;
 
     if ((ret = vt->Init()) != DCGM_ST_OK) {
-        log_error("dcgm: dcgmInit failed: %s", vt->ErrorString(ret));
+        log_error("dcgm: dcgmInit failed: %s", dcgm_strerror(vt, ret));
         return -1;
     }
 
-    /* NULL address → connect to localhost DCGM daemon on default port */
-    if ((ret = vt->Connect(NULL, handle)) != DCGM_ST_OK) {
-        log_error("dcgm: dcgmConnect failed: %s", vt->ErrorString(ret));
+    /* DCGM 3.x accepted NULL to mean localhost; 4.x requires an explicit
+     * address (DCGM_ST_BADPARAM on NULL).  Use loopback explicitly. */
+    if ((ret = vt->Connect("127.0.0.1", handle)) != DCGM_ST_OK) {
+        log_error("dcgm: dcgmConnect failed: %s", dcgm_strerror(vt, ret));
         vt->Shutdown();
         return -1;
     }
@@ -136,7 +169,7 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
     long group_id = 0;
     if ((ret = vt->GroupCreate(*handle, DCGM_GROUP_EMPTY,
                                "gpu_health", &group_id)) != DCGM_ST_OK) {
-        log_error("dcgm: GroupCreate failed: %s", vt->ErrorString(ret));
+        log_error("dcgm: GroupCreate failed: %s", dcgm_strerror(vt, ret));
         goto fail_disconnect;
     }
 
@@ -144,18 +177,18 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
         if ((ret = vt->GroupAddDevice(*handle, group_id,
                                       gpu_ids[i])) != DCGM_ST_OK) {
             log_error("dcgm: GroupAddDevice gpu=%u failed: %s",
-                      gpu_ids[i], vt->ErrorString(ret));
+                      gpu_ids[i], dcgm_strerror(vt, ret));
             goto fail_disconnect;
         }
     }
 
     /* Create field group with all subscribed fields */
     long field_group_id = 0;
-    if ((ret = vt->FieldGroupCreate(*handle, (unsigned short *)POLL_FIELDS,
-                                    DCGM_NUM_POLL_FIELDS,
+    if ((ret = vt->FieldGroupCreate(*handle, DCGM_NUM_POLL_FIELDS,
+                                    (unsigned short *)POLL_FIELDS,
                                     "gpu_health_fields",
                                     &field_group_id)) != DCGM_ST_OK) {
-        log_error("dcgm: FieldGroupCreate failed: %s", vt->ErrorString(ret));
+        log_error("dcgm: FieldGroupCreate failed: %s", dcgm_strerror(vt, ret));
         goto fail_disconnect;
     }
 
@@ -163,7 +196,7 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
     if ((ret = vt->WatchFields(*handle, group_id, field_group_id,
                                1000000L /* µs */, 300.0 /* s */,
                                2)) != DCGM_ST_OK) {
-        log_error("dcgm: WatchFields failed: %s", vt->ErrorString(ret));
+        log_error("dcgm: WatchFields failed: %s", dcgm_strerror(vt, ret));
         goto fail_disconnect;
     }
 
@@ -197,6 +230,12 @@ int dcgm_poll(dcgm_vtable_t *vt, long handle, int gpu_id, dcgm_fields_t *out)
     out->pcie_replay          = DCGM_FIELD_UNAVAILABLE_U64;
     out->row_remap_failures   = DCGM_FIELD_UNAVAILABLE_U32;
 
+    if (vt->UpdateAllFields) {
+        int uret = vt->UpdateAllFields(handle, 1 /* wait */);
+        if (uret != DCGM_ST_OK)
+            log_debug("dcgm: UpdateAllFields failed: %s", dcgm_strerror(vt, uret));
+    }
+
     dcgm_field_value_t values[DCGM_NUM_POLL_FIELDS];
     memset(values, 0, sizeof(values));
 
@@ -205,7 +244,7 @@ int dcgm_poll(dcgm_vtable_t *vt, long handle, int gpu_id, dcgm_fields_t *out)
                                   DCGM_NUM_POLL_FIELDS, values);
     if (ret != DCGM_ST_OK) {
         log_error("dcgm: GetLatestValues gpu=%d failed: %s",
-                  gpu_id, vt->ErrorString(ret));
+                  gpu_id, dcgm_strerror(vt, ret));
         return -1;
     }
 
@@ -222,9 +261,14 @@ int dcgm_poll(dcgm_vtable_t *vt, long handle, int gpu_id, dcgm_fields_t *out)
         switch (POLL_FIELDS[i]) {
 
         case DCGM_FI_DEV_POWER_USAGE:
-            /* double field, W */
-            if (values[i].value.dbl < DCGM_FP64_BLANK)
-                out->power_w = values[i].value.dbl;
+            /* DCGM 3.x: double, W.  DCGM 4.x: INT64, mW. */
+            if (values[i].fieldType == DCGM_FT_INT64) {
+                if (values[i].value.i64 < DCGM_INT64_BLANK)
+                    out->power_w = (double)values[i].value.i64 / 1000.0;
+            } else {
+                if (values[i].value.dbl < DCGM_FP64_BLANK)
+                    out->power_w = values[i].value.dbl;
+            }
             break;
 
         case DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION:
