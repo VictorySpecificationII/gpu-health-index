@@ -48,7 +48,7 @@ services:
   # Create the probe-history bucket after first start:
   #   aws --endpoint-url http://localhost:4566 s3 mb s3://gpu-health-probe-history
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack-community:latest
     container_name: gpu-health-localstack
     network_mode: host
     environment:
