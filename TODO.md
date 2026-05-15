@@ -35,6 +35,25 @@
 
 ---
 
+## Phase 1.5 — bare metal hardening (before K8s)
+
+### Alerting
+- [ ] Prometheus alerting rules — `gpu_health_class=4` (decommission candidate), `gpu_dcgm_available=0`, `gpu_available=0`, `gpu_telemetry_ok=0`, `gpu_ecc_dbe_in_window=1`, `gpu_probe_result_stale=1`
+- [ ] Grafana alert annotations or contact point wiring (optional — Prometheus Alertmanager is sufficient)
+
+### Baseline history
+- [ ] Append-only history record per GPU — each probe run appended to `{serial}.history` (timestamp, driver, perf_w_mean, sample_count); never read by the exporter, consumed by Phase 2 financial layer
+- [ ] Decide on history storage backend for bare metal (local append file vs. external store)
+
+### Security
+- [ ] HTTP parser audit — review `read_request_line` against malformed/oversized input; confirm no path traversal or header injection surface
+
+### Operational
+- [ ] Runbook — what on-call does when `gpu_health_class=4` fires, DCGM drops, probe goes stale, ECC DBE appears
+- [ ] Log rotation — confirm `journald` RateLimitBurst covers poll-rate log volume; document if `journald` is not used
+
+---
+
 ## Phase 2 — financial layer
 > Separate system. Consumers of the exporter's outputs. Not blocking Phase 1.
 
