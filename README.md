@@ -191,7 +191,7 @@ tls_key_path                =
 The unit file is at [deploy/gpu-health.service](deploy/gpu-health.service).
 
 ```sh
-# Install binary, unit file, config directory, and example config
+# Install binary, unit file, config, service account, and correct permissions
 sudo make install PREFIX=/usr/local
 
 # Enable and start
@@ -199,11 +199,19 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now gpu-health
 ```
 
+`sudo make install` handles the full setup:
+- Installs the binary and unit file
+- Creates the `gpu-health` system account (no shell, no home directory)
+- Adds it to the `render` group for `/dev/nvidia*` access
+- Sets `/etc/gpu-health/gpu-health.conf` to `root:gpu-health 0640`
+- Sets `/etc/gpu-health/baseline` to `root:gpu-health 0750`
+
 Key unit properties:
 - `Requires=nvidia-dcgm.service` — if the DCGM daemon stops, this unit stops with it
 - `RuntimeDirectory=gpu-health` — systemd creates `/var/run/gpu-health` automatically
 - `TimeoutStartSec=60s` — the exporter sends `READY=1` after the first successful poll on all GPUs; 60s gives margin for driver and DCGM init on large GPU counts
 - `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
+- `User=gpu-health`, `ProtectSystem=strict`, `PrivateTmp=yes` — runs as a dedicated account with filesystem isolation
 
 **Prometheus file_sd (multi-node bare metal):**
 

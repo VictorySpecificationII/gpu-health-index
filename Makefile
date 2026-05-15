@@ -83,6 +83,15 @@ install: $(BUILDDIR)/$(BINARY)
 	install -d /etc/gpu-health/baseline
 	test -f /etc/gpu-health/gpu-health.conf || \
 		install -Dm644 deploy/gpu-health.conf.example /etc/gpu-health/gpu-health.conf
+	# Service account — idempotent: skip if already exists
+	id -u gpu-health >/dev/null 2>&1 || \
+		useradd --system --no-create-home --shell /usr/sbin/nologin gpu-health
+	usermod -aG render gpu-health
+	# Config readable only by root and the service account
+	chown root:gpu-health /etc/gpu-health/gpu-health.conf
+	chmod 0640 /etc/gpu-health/gpu-health.conf
+	chown root:gpu-health /etc/gpu-health/baseline
+	chmod 0750 /etc/gpu-health/baseline
 
 # ---- Clean ------------------------------------------------------------------
 

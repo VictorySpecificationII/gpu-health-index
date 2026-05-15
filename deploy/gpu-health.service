@@ -43,21 +43,30 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gpu-health
 
-# Security hardening — procpriv.c implements full capability drop (capset to
-# all-zeros) and a seccomp-BPF allowlist in both the HTTP child and the NVML
-# parent. The systemd directives below are an additional hardening layer;
-# enable once a dedicated service account is provisioned:
-# Once enabled, tighten to:
-#   User=gpu-health
-#   Group=gpu-health (must be in 'render' or 'video' group for /dev/nvidia*)
-#   CapabilityBoundingSet=CAP_DAC_OVERRIDE
-#   AmbientCapabilities=CAP_DAC_OVERRIDE
-#   NoNewPrivileges=yes
-#   PrivateTmp=yes
-#   ProtectSystem=strict
-#   ProtectHome=yes
-#   ReadWritePaths=/var/run/gpu-health
-# Until then the service runs as root.
+# Security hardening — two layers:
+# 1. procpriv.c: capset to all-zeros in both parent and child; seccomp-BPF
+#    allowlist in the HTTP child.
+# 2. systemd directives below: dedicated service account, filesystem isolation,
+#    no privilege escalation path.
+#
+# /dev/nvidia* access is granted via SupplementaryGroups=render.
+# If the render group is absent on your distro, substitute 'video'.
+#
+# CAP_DAC_OVERRIDE is retained only for the NVML init window before procpriv
+# drops all capabilities. It is not available during steady-state polling.
+#
+# If file_sd_path is set in the config, add the target directory here too:
+#   ReadWritePaths=/etc/prometheus/file_sd/gpu-health
+User=gpu-health
+Group=gpu-health
+SupplementaryGroups=render
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_DAC_OVERRIDE
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/run/gpu-health
 
 [Install]
 WantedBy=multi-user.target
