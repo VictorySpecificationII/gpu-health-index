@@ -36,8 +36,8 @@
 ## Phase 2 — financial layer
 > Separate system. Consumers of the exporter's outputs. Not blocking Phase 1.
 
-- [ ] `probe/gpu_health_probe.cu` — cuBLAS BF16 GEMM probe binary
-- [ ] `probe/Makefile`
+- [x] `probe/gpu_health_probe.cu` — cuBLAS BF16 GEMM probe binary
+- [x] `probe/Makefile`
 - [ ] Assessment report generator (structured JSON + human-readable format)
 - [ ] Lifetime degradation record accumulator (ECC aggregate, retired pages, row remap history over GPU's monitored lifetime)
 - [ ] NVIDIA attestation integration (H100/H200 Confidential Computing)
