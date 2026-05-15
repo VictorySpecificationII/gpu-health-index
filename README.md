@@ -62,14 +62,19 @@ make
 # Debug build — AddressSanitizer + UBSan + debug symbols
 make DEBUG=1
 
-# With TLS support (requires mbedTLS)
+# With TLS support (requires libmbedtls-dev)
 make WITH_TLS=1
 
 # Run all tests (no GPU required — tests use a fake vtable)
 make test
+# Run TLS tests (exercises full handshake without a GPU)
+make WITH_TLS=1 build/test_http && ./build/test_http
 
 # Install to /usr/local/bin
 sudo make install PREFIX=/usr/local
+
+# Install with TLS support (also creates /etc/gpu-health/tls/)
+sudo make install PREFIX=/usr/local WITH_TLS=1
 ```
 
 Binary: `build/gpu-health-exporter`
@@ -209,6 +214,34 @@ sudo systemctl start gpu-health-probe.service
 - Adds it to the `render` group for `/dev/nvidia*` access
 - Sets `/etc/gpu-health/gpu-health.conf` to `root:gpu-health 0640`
 - Sets `/etc/gpu-health/baseline` to `root:gpu-health 0750`
+- `WITH_TLS=1` additionally creates `/etc/gpu-health/tls/` at `root:gpu-health 0750`
+
+**Optional: TLS (requires `WITH_TLS=1` build)**
+
+```sh
+# Generate a self-signed certificate (valid 10 years)
+sudo openssl req -x509 -newkey rsa:4096 \
+  -keyout /etc/gpu-health/tls/server.key \
+  -out /etc/gpu-health/tls/server.crt \
+  -days 3650 -nodes -subj "/CN=$(hostname)"
+sudo chown root:gpu-health /etc/gpu-health/tls/server.key /etc/gpu-health/tls/server.crt
+sudo chmod 0640 /etc/gpu-health/tls/server.key
+sudo chmod 0644 /etc/gpu-health/tls/server.crt
+```
+
+Add to `/etc/gpu-health/gpu-health.conf`:
+```
+tls_cert_path = /etc/gpu-health/tls/server.crt
+tls_key_path  = /etc/gpu-health/tls/server.key
+```
+
+Verify after service start:
+```sh
+curl --insecure https://localhost:9108/metrics | head -3
+openssl s_client -connect localhost:9108 -brief
+```
+
+Validated on H200: TLSv1.2, ECDHE-RSA-CHACHA20-POLY1305, secp521r1. Cert/key are loaded before the seccomp filter is installed — no additional syscall allowances required.
 
 Key unit properties:
 - `Requires=nvidia-dcgm.service` — if the DCGM daemon stops, this unit stops with it
