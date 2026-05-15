@@ -148,8 +148,9 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
         return -1;
     }
 
-    /* NULL address → connect to localhost DCGM daemon on default port */
-    if ((ret = vt->Connect(NULL, handle)) != DCGM_ST_OK) {
+    /* DCGM 3.x accepted NULL to mean localhost; 4.x requires an explicit
+     * address (DCGM_ST_BADPARAM on NULL).  Use loopback explicitly. */
+    if ((ret = vt->Connect("127.0.0.1", handle)) != DCGM_ST_OK) {
         log_error("dcgm: dcgmConnect failed: %s", dcgm_strerror(vt, ret));
         vt->Shutdown();
         return -1;
