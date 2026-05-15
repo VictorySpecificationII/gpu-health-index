@@ -79,10 +79,8 @@ Binary: `build/gpu-health-exporter`
 ## Quick start
 
 ```sh
-# Create the state directory (required — hard fail at startup if missing)
-sudo mkdir -p /var/run/gpu-health
-
-# Run with compiled-in defaults
+# Run with compiled-in defaults (state_dir created automatically by systemd
+# RuntimeDirectory when using the unit file; for manual runs create it first)
 sudo ./build/gpu-health-exporter
 
 # Or point at a config file
@@ -194,9 +192,15 @@ The unit file is at [deploy/gpu-health.service](deploy/gpu-health.service).
 # Install binary, unit file, config, service account, and correct permissions
 sudo make install PREFIX=/usr/local
 
-# Enable and start
+# Enable and start the exporter
 sudo systemctl daemon-reload
 sudo systemctl enable --now gpu-health
+
+# Optional: install the cuBLAS probe (requires CUDA toolkit) and enable daily timer
+make -C probe && sudo make -C probe install PREFIX=/usr/local
+sudo systemctl enable --now gpu-health-probe.timer
+# Force an immediate first run rather than waiting until 02:00:
+sudo systemctl start gpu-health-probe.service
 ```
 
 `sudo make install` handles the full setup:
@@ -484,10 +488,43 @@ The exporter reloads on change via inotify — no restart needed.
 **Kubernetes:** mount a ConfigMap at the same path. Kubelet propagates
 ConfigMap updates; inotify picks up the change.
 
-Baselines are produced by the companion `gpu_health_probe` binary
-(`probe/gpu_health_probe.cu`), a cuBLAS BF16 GEMM workload. Build it with
-`make -C probe`. Run once per GPU at commissioning; the result file is written
-to `state_dir/{serial}.probe` and picked up by the exporter automatically.
+Baselines and periodic probe results are produced by the companion
+`gpu_health_probe` binary (`probe/gpu_health_probe.cu`), a cuBLAS BF16 GEMM
+workload. Build and install it separately (requires CUDA toolkit):
+
+```sh
+make -C probe
+sudo make -C probe install PREFIX=/usr/local
+```
+
+**Periodic runs (bare metal):** `sudo make install` installs
+`gpu-health-probe.service` and `gpu-health-probe.timer`. Enable after
+installing the probe binary:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now gpu-health-probe.timer
+```
+
+The timer fires daily at 02:00 with a random 30-minute spread across the
+cluster. To force an immediate run (e.g. at commissioning):
+
+```sh
+sudo systemctl start gpu-health-probe.service
+sudo journalctl -u gpu-health-probe -f --no-pager
+```
+
+The probe writes `{serial}.probe` to `state_dir`. The exporter picks it up
+immediately via inotify — no restart required. Probe results expire after
+`probe_ttl_s` (default 36 hours); `gpu_probe_result_stale` flips to 1 if a
+run is missed.
+
+**Establish a baseline** (first commissioning only):
+
+```sh
+sudo -u gpu-health /usr/local/bin/gpu_health_probe --establish-baseline \
+    -s /var/run/gpu-health -b /etc/gpu-health/baseline
+```
 
 The exporter exposes `gpu_baseline_available` and `gpu_baseline_age_seconds`
 for pipeline consumption.
