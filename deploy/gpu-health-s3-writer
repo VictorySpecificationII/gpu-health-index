@@ -106,16 +106,22 @@ for probe_file in "${probe_files[@]}"; do
         "${probe_exit_code}" "${probe_duration_s}" "${perf_w_mean:-0}" \
         "${workload}" "${sample_count}" "${hostname}")
 
-    if echo "${json}" | aws s3api put-object \
+    # AWS CLI v2 requires --body to be a file path, not stdin
+    tmp_file=$(mktemp /tmp/gpu-health-s3-XXXXXX.json)
+    echo "${json}" > "${tmp_file}"
+
+    if aws s3api put-object \
             "${AWS_ARGS[@]}" \
             --bucket "${S3_BUCKET}" \
             --key "${s3_key}" \
-            --body /dev/stdin \
+            --body "${tmp_file}" \
             --content-type "application/json" \
             > /dev/null; then
+        rm -f "${tmp_file}"
         echo "gpu-health-s3-writer: uploaded s3://${S3_BUCKET}/${s3_key}"
         uploaded=$((uploaded + 1))
     else
+        rm -f "${tmp_file}"
         echo "gpu-health-s3-writer: FAILED s3://${S3_BUCKET}/${s3_key}" >&2
         failed=$((failed + 1))
     fi
