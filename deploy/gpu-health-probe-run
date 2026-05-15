@@ -1,0 +1,28 @@
+#!/bin/bash
+# gpu-health-probe-run — run gpu_health_probe for each GPU on this node.
+# Called by gpu-health-probe.service (oneshot). Writes {serial}.probe to
+# state_dir; gpu-health-exporter picks up the result via inotify.
+set -euo pipefail
+
+PROBE=/usr/local/bin/gpu_health_probe
+STATE_DIR=/var/run/gpu-health
+BASELINE_DIR=/etc/gpu-health/baseline
+DURATION=${GPU_HEALTH_PROBE_DURATION_S:-300}
+WARMUP=${GPU_HEALTH_PROBE_WARMUP_S:-30}
+
+GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+if [ "${GPU_COUNT}" -eq 0 ]; then
+    echo "gpu-health-probe-run: no GPUs detected" >&2
+    exit 1
+fi
+
+echo "gpu-health-probe-run: ${GPU_COUNT} GPU(s) detected, duration=${DURATION}s warmup=${WARMUP}s"
+
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+    echo "gpu-health-probe-run: starting probe for GPU ${i}"
+    "${PROBE}" -i "${i}" -s "${STATE_DIR}" -b "${BASELINE_DIR}" \
+               -d "${DURATION}" -w "${WARMUP}"
+    echo "gpu-health-probe-run: GPU ${i} probe complete"
+done
+
+echo "gpu-health-probe-run: all GPUs complete"

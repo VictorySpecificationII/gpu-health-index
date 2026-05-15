@@ -92,6 +92,10 @@ install: $(BUILDDIR)/$(BINARY)
 	chmod 0640 /etc/gpu-health/gpu-health.conf
 	chown root:gpu-health /etc/gpu-health/baseline
 	chmod 0750 /etc/gpu-health/baseline
+	# Probe runner script and units (probe binary installed separately via probe/Makefile)
+	install -Dm755 deploy/gpu-health-probe-run $(PREFIX)/bin/gpu-health-probe-run
+	install -Dm644 deploy/gpu-health-probe.service /etc/systemd/system/gpu-health-probe.service
+	install -Dm644 deploy/gpu-health-probe.timer /etc/systemd/system/gpu-health-probe.timer
 
 # ---- Clean ------------------------------------------------------------------
 

@@ -21,6 +21,7 @@
 ### Deployment artifacts
 - [x] `deploy/gpu-health.service` — systemd unit (bare metal)
 - [x] `deploy/gpu-health.conf.example` — fully annotated config file
+- [x] `deploy/gpu-health-probe.service` + `deploy/gpu-health-probe.timer` — periodic cuBLAS probe (daily, per-GPU)
 - [ ] `deploy/k8s/daemonset.yaml`
 - [ ] `deploy/k8s/configmap-baseline.yaml`
 - [ ] `deploy/k8s/servicemonitor.yaml`
