@@ -97,8 +97,11 @@ int dcgm_load(dcgm_vtable_t *vt, void **dl_handle)
     LOAD_REQ(GroupAddDevice,   "dcgmGroupAddDevice",                      NULL);
     LOAD_REQ(FieldGroupCreate, "dcgmFieldGroupCreate",                    NULL);
     LOAD_REQ(WatchFields,      "dcgmWatchFields",                         NULL);
-    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValues_v2",
-                               "dcgmGetLatestValues");
+    /* Prefer v1 over v2: dcgmGetLatestValues_v2 in DCGM 4.x uses a different
+     * struct layout (dcgmFieldValue_v2) incompatible with our dcgm_field_value_t
+     * mirror of v1.  Use v1 directly; fall back to v2 only on older builds. */
+    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValues",
+                               "dcgmGetLatestValues_v2");
     LOAD_OPT(ErrorString,      "dcgmErrorString",                         NULL);
 
 #undef LOAD_OPT
