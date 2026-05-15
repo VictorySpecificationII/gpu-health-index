@@ -1,0 +1,51 @@
+global:
+  resolve_timeout: 5m
+  # Receiver-specific globals (SMTP, Slack API URL, etc.) go here when configured.
+
+route:
+  group_by: ['alertname', 'instance']
+  group_wait: 30s        # wait before sending first notification for a new group
+  group_interval: 5m     # wait before sending new notifications for an existing group
+  repeat_interval: 4h    # resend if alert is still firing after this duration
+  receiver: default
+
+receivers:
+  - name: default
+    # TODO: configure a receiver for your environment.
+    # Uncomment and fill in exactly one of the blocks below.
+
+    # ---- Slack ---------------------------------------------------------------
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#gpu-alerts'
+    #     send_resolved: true
+
+    # ---- Email ---------------------------------------------------------------
+    # email_configs:
+    #   - to: 'oncall@example.com'
+    #     from: 'alertmanager@example.com'
+    #     smarthost: 'smtp.example.com:587'
+    #     auth_username: 'alertmanager@example.com'
+    #     auth_password: 'SECRET'
+    #     send_resolved: true
+
+    # ---- PagerDuty -----------------------------------------------------------
+    # pagerduty_configs:
+    #   - routing_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+    #     send_resolved: true
+
+    # ---- Generic webhook -----------------------------------------------------
+    # webhook_configs:
+    #   - url: 'http://your-webhook-endpoint/alerts'
+    #     send_resolved: true
+
+inhibit_rules:
+  # Suppress warning-severity alerts when a critical alert is already firing
+  # for the same GPU (matched on instance + serial).  Avoids double-paging
+  # when e.g. GpuDecommissionCandidate (critical) and GpuDegrading (warning)
+  # fire together for the same device.
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: [instance, serial]

@@ -39,7 +39,7 @@
 
 ### Alerting
 - [x] Prometheus alerting rules — `deploy/monitoring/prometheus/alerts.yml`: GpuExporterDown, GpuUnavailable, GpuDcgmUnavailable, GpuDecommissionCandidate, GpuDegrading, GpuTelemetryIncomplete, GpuEccDoubleBitError, GpuHighEccSbeRate, GpuRowRemapFailure, GpuPcieLinkDegraded, GpuProbeResultStale
-- [ ] Grafana alert annotations or contact point wiring (optional — Prometheus Alertmanager is sufficient)
+- [x] Alertmanager service added to docker-compose; prometheus.yml wired to localhost:9093; alertmanager.yml has stub receiver with Slack/email/PagerDuty/webhook templates and inhibit rule (critical suppresses warning for same GPU); Grafana provisioned with Alertmanager data source
 
 ### Baseline history
 - [ ] Per-probe JSON record written to S3 (or S3-compatible endpoint) — one object per run, keyed `{serial}/{timestamp}.json`; never read by the exporter, consumed by Phase 2 financial layer (see ADR-010)

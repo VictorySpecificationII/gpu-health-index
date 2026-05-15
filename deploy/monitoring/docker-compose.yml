@@ -14,6 +14,18 @@ services:
       - --storage.tsdb.retention.time=7d
     restart: unless-stopped
 
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: gpu-health-alertmanager
+    network_mode: host
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:latest
     container_name: gpu-health-grafana
@@ -32,3 +44,4 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
