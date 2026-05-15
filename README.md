@@ -277,6 +277,91 @@ writable by the service. Paths under `/etc` are not writable under `ProtectSyste
 
 Each node writes its own file. Prometheus discovers all of them automatically. No static `scrape_configs` entry per node.
 
+### Monitoring stack (Prometheus + Alertmanager + Grafana)
+
+A ready-to-run docker-compose stack lives in `deploy/monitoring/`.
+
+```sh
+cd deploy/monitoring
+docker compose up -d
+```
+
+| Service | Port | Purpose |
+|---|---|---|
+| Prometheus | 9090 | Scrapes `/metrics`, evaluates alert rules |
+| Alertmanager | 9093 | Routes firing alerts to a contact point |
+| Grafana | 3000 | Dashboards and alert state visualisation |
+
+Prometheus discovers GPU nodes via the `file_sd.json` written by the exporter
+at startup. The stack mounts `/var/run/gpu-health` read-only to pick up the
+file automatically.
+
+**Alert rules**
+
+11 rules are pre-configured in `deploy/monitoring/prometheus/alerts.yml`:
+
+| Alert | Severity | Condition |
+|---|---|---|
+| GpuExporterDown | critical | Exporter unreachable for 1m |
+| GpuUnavailable | critical | NVML unavailable for 1m |
+| GpuDcgmUnavailable | critical | DCGM unavailable for 2m |
+| GpuDecommissionCandidate | critical | health_class == 4 for 5m |
+| GpuDegrading | warning | health_class == 3 for 5m |
+| GpuTelemetryIncomplete | warning | telemetry_ok == 0 for 5m |
+| GpuEccDoubleBitError | critical | DBE in scoring window for 1m |
+| GpuHighEccSbeRate | warning | SBE rate > 100/hr for 5m |
+| GpuRowRemapFailure | critical | row remap failures > 0 for 1m |
+| GpuPcieLinkDegraded | warning | current gen/width < max for 2m |
+| GpuProbeResultStale | warning | probe result older than TTL for 25h |
+
+Test all rules locally (no GPU required — uses Docker):
+
+```sh
+make test-alerts
+```
+
+**Configuring a contact point**
+
+Edit `deploy/monitoring/alertmanager/alertmanager.yml` and uncomment one
+receiver block under `receivers.default`:
+
+```yaml
+# Slack
+slack_configs:
+  - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    channel: '#gpu-alerts'
+    send_resolved: true
+
+# PagerDuty
+pagerduty_configs:
+  - routing_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+    send_resolved: true
+
+# Email
+email_configs:
+  - to: 'oncall@example.com'
+    smarthost: 'smtp.example.com:587'
+    send_resolved: true
+```
+
+Then restart Alertmanager:
+
+```sh
+docker compose restart alertmanager
+```
+
+An inhibit rule is pre-configured: if a critical alert fires for a GPU,
+warning-level alerts for the same device are suppressed to avoid double-paging.
+
+**Updating on a running node**
+
+```sh
+git pull
+cd deploy/monitoring
+docker compose up -d          # picks up new images and config changes
+docker compose restart prometheus   # reload prometheus.yml / alerts.yml
+```
+
 ### Kubernetes (DaemonSet)
 
 The exporter runs as a DaemonSet, one pod per node. Baseline files are
