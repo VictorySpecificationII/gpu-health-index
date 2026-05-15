@@ -177,8 +177,8 @@ int dcgm_setup(dcgm_vtable_t *vt, long *handle,
 
     /* Create field group with all subscribed fields */
     long field_group_id = 0;
-    if ((ret = vt->FieldGroupCreate(*handle, (unsigned short *)POLL_FIELDS,
-                                    DCGM_NUM_POLL_FIELDS,
+    if ((ret = vt->FieldGroupCreate(*handle, DCGM_NUM_POLL_FIELDS,
+                                    (unsigned short *)POLL_FIELDS,
                                     "gpu_health_fields",
                                     &field_group_id)) != DCGM_ST_OK) {
         log_error("dcgm: FieldGroupCreate failed: %s", dcgm_strerror(vt, ret));
