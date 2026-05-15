@@ -4,8 +4,8 @@ Documentation=https://github.com/VictorySpecificationII/gpu-health-index
 After=network.target nvidia-dcgm.service
 Requires=nvidia-dcgm.service
 
-# nv-hostengine is the DCGM daemon. It is operationally required — if it
-# stops, this unit stops with it. NVML alone gives an incomplete health
+# nvidia-dcgm.service is the DCGM daemon. It is operationally required — if
+# it stops, this unit stops with it. NVML alone gives an incomplete health
 # picture: board power, energy, memory bandwidth, NVLink, XID errors, and
 # violation counters all come from DCGM.
 
@@ -43,9 +43,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gpu-health
 
-# Security hardening — NOTE: procpriv.c is currently Phase 1 stubs
-# (PR_SET_NO_NEW_PRIVS only). Full capability drop + seccomp is Phase 2.
-# Once implemented, tighten to:
+# Security hardening — procpriv.c implements full capability drop (capset to
+# all-zeros) and a seccomp-BPF allowlist in both the HTTP child and the NVML
+# parent. The systemd directives below are an additional hardening layer;
+# enable once a dedicated service account is provisioned:
+# Once enabled, tighten to:
 #   User=gpu-health
 #   Group=gpu-health (must be in 'render' or 'video' group for /dev/nvidia*)
 #   CapabilityBoundingSet=CAP_DAC_OVERRIDE

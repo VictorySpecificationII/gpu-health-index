@@ -44,8 +44,8 @@ by the parent if it exits.
 **Runtime:**
 - NVML (`libnvidia-ml.so`) in the dynamic linker path. Present on any host
   with NVIDIA drivers installed.
-- DCGM daemon (`nv-hostengine`) running on the host. `libdcgm.so` must be
-  in the dynamic linker path.
+- DCGM daemon (`nvidia-dcgm.service`) running on the host. `libdcgm.so` must
+  be in the dynamic linker path.
 - A writable `state_dir` (default: `/var/run/gpu-health`).
 
 **Supported GPUs:** Ampere (A100) and later. Blackwell supported natively
@@ -199,7 +199,7 @@ sudo systemctl enable --now gpu-health
 ```
 
 Key unit properties:
-- `Requires=nv-hostengine.service` — if the DCGM daemon stops, this unit stops with it
+- `Requires=nvidia-dcgm.service` — if the DCGM daemon stops, this unit stops with it
 - `RuntimeDirectory=gpu-health` — systemd creates `/var/run/gpu-health` automatically
 - `TimeoutStartSec=60s` — the exporter sends `READY=1` after the first successful poll on all GPUs; 60s gives margin for driver and DCGM init on large GPU counts
 - `Type=notify` — `sd_notify READY=1` is sent over a raw Unix socket; no libsystemd dependency
