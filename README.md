@@ -223,7 +223,7 @@ sudo mkdir -p /etc/prometheus/file_sd/gpu-health
 
 ```
 # /etc/gpu-health/gpu-health.conf
-file_sd_path = /etc/prometheus/file_sd/gpu-health/gpu-health.json
+file_sd_path = /var/run/gpu-health/file_sd.json
 ```
 
 Then in `prometheus.yml`:
@@ -231,9 +231,12 @@ Then in `prometheus.yml`:
 scrape_configs:
   - job_name: gpu-health
     file_sd_configs:
-      - files: ['/etc/prometheus/file_sd/gpu-health/*.json']
+      - files: ['/var/run/gpu-health/file_sd.json']
         refresh_interval: 60s
 ```
+
+`/var/run/gpu-health` is managed by `RuntimeDirectory=gpu-health` and is always
+writable by the service. Paths under `/etc` are not writable under `ProtectSystem=strict`.
 
 Each node writes its own file. Prometheus discovers all of them automatically. No static `scrape_configs` entry per node.
 

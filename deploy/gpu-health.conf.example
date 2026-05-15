@@ -54,10 +54,13 @@ listen_port = 9108
 # Prometheus file_sd_configs example:
 #   - job_name: gpu-health
 #     file_sd_configs:
-#       - files: ['/etc/prometheus/file_sd/gpu-health/*.json']
+#       - files: ['/var/run/gpu-health/file_sd.json']
 #         refresh_interval: 60s
+# Note: /var/run/gpu-health is managed by systemd RuntimeDirectory and is
+# always writable by the service regardless of ProtectSystem= settings.
+# Paths under /etc are not writable under ProtectSystem=strict.
 # Range: any valid writable path, or empty to disable
-#file_sd_path = /etc/prometheus/file_sd/gpu-health/gpu-health.json
+#file_sd_path = /var/run/gpu-health/file_sd.json
 
 
 # ---------------------------------------------------------------------------
