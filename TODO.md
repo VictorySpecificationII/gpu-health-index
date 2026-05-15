@@ -12,8 +12,8 @@
 ### Security hardening
 > `procpriv.c` is stubs only (`PR_SET_NO_NEW_PRIVS`). Full implementation below.
 
-- [ ] `procpriv_child_setup()` — `capset()` to all-zeros + seccomp whitelist: `accept4`, `read`, `write`, `close`, `select`, `socket`, `bind`, `listen`, `sendto`, `recvfrom`, `sigaction`, `exit_group`
-- [ ] `procpriv_parent_setup()` — `capset()` drop to minimal set after NVML file descriptors are already open
+- [x] `procpriv_child_setup()` — `capset()` to all-zeros + seccomp whitelist: `accept4`, `read`, `write`, `close`, `select`, `socket`, `bind`, `listen`, `sendto`, `recvfrom`, `sigaction`, `exit_group`
+- [x] `procpriv_parent_setup()` — `capset()` drop to minimal set after NVML file descriptors are already open
 
 ### Optional TLS
 - [ ] `http.c` — `WITH_TLS=1` build path: mbedTLS server setup, cert/key load from config (`tls_cert_path`, `tls_key_path`), wrap each accepted fd before request dispatch

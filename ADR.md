@@ -287,23 +287,38 @@ socketpair has no filesystem presence and is not inheritable by processes outsid
 
 ### Decision
 
-Fork at startup. Parent: poll thread per GPU, NVML/DCGM access, drops to minimal capabilities
-after GPU handles are open. Child: HTTP server only, drops all capabilities and installs a
-seccomp-BPF whitelist (accept4, read, write, close, select, socket, bind, listen, sendto,
-recvfrom, sigaction, exit_group). IPC is a fixed-size `gpu_snapshot_t` struct written atomically
-over a socketpair — no protocol parsing, no dynamic allocation in the IPC path.
+Fork at startup. Parent: poll thread per GPU, NVML/DCGM access, drops all capabilities after GPU
+handles are open. Child: HTTP server only, drops all capabilities and installs a seccomp-BPF
+allowlist. IPC is a fixed-size `gpu_snapshot_t` struct written atomically over a socketpair —
+no protocol parsing, no dynamic allocation in the IPC path.
 
 Parent monitors child via `waitpid()` and respawns it on crash. Child detects parent death via
 EOF on the socketpair and exits cleanly. Systemd monitors the parent only.
+
+**Capability management — no libcap dependency.** Both parent and child drop capabilities via
+the raw `capset(2)` syscall with `<linux/capability.h>` types. This is consistent with ADR-001
+(zero mandatory non-system deps). libcap would add a runtime dependency for a single two-line
+operation.
+
+**Seccomp default action — fail-closed (`SECCOMP_RET_KILL_PROCESS`).** Any syscall not on the
+allowlist kills the process immediately with no signal to the caller. The alternative,
+`SECCOMP_RET_ERRNO(EPERM)`, would allow the child to continue after a policy violation and log
+the error — useful for tuning but unacceptable for production. If the allowlist is missing a
+syscall the child legitimately needs, the process crashes and the parent respawns it; the crash
+is visible in logs and the missing syscall is diagnosable with `dmesg`. Fail-closed is the
+correct default for a network-facing process on production infrastructure.
 
 ### Consequences
 
 - HTTP child crash does not interrupt GPU collection. Parent respawns the child and scrapes
   resume after the respawn delay.
 - A vulnerability in the HTTP parser cannot reach NVML handles or `/dev/nvidia*`. The child has
-  no access to those resources after the capability drop.
-- Seccomp whitelist in the child (Phase 1 TODO: `procpriv.c` is currently stubs) will reduce the
-  attack surface further. Until then, `PR_SET_NO_NEW_PRIVS` is set.
+  no access to those resources after the capability drop and seccomp filter installation.
+- Both parent and child drop all capabilities. For the parent, this means if NVML needs to
+  re-open `/dev/nvidia*` after a driver reset (e.g. during error recovery), it will fail
+  without `CAP_DAC_OVERRIDE`. That failure surfaces through the existing consecutive-error
+  handling path and is an acceptable trade-off: driver resets are rare, the error is visible,
+  and retaining capabilities to handle them would undermine the security model.
 - ~110 lines of additional code over a single-process design. Justified for production deployment
   at AI factory scale.
 
