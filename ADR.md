@@ -404,3 +404,50 @@ allowlist). Prometheus scraping over TLS works out of the box with `tls_config` 
 - The management network on target deployments is trusted; plain HTTP is operationally acceptable
   in the baseline case. TLS is implemented for environments where it is required, not assumed
   necessary everywhere.
+
+---
+
+## ADR-010: Probe history storage — S3-compatible object storage, not a database
+
+**Status:** Accepted
+
+### Context
+
+Each probe run produces a result: GPU serial, timestamp, driver version, perf_w_mean, sample count.
+This history is the raw material for the Phase 2 financial layer — degradation trending, residual
+value modelling, warranty evidence, chargeback attribution. It must be retained indefinitely and
+must be auditable (immutable, timestamped, attributable to a specific run).
+
+Two options were evaluated:
+
+**Relational database (Postgres):** Queryable, supports complex joins and aggregations. Requires
+operational overhead — deployment, backup, scaling, failover. Also requires committing to a schema
+before the financial model's query patterns are known. Premature schema design is a liability when
+the product is still being defined.
+
+**S3-compatible object storage:** One object per probe run, keyed `{serial}/{timestamp}.json`.
+Naturally append-only and immutable. No schema. No operational overhead — works with AWS S3, GCS,
+any datacenter-local MinIO instance, or Cloudflare R2. Probe history for 10,000 GPUs over 10 years
+is negligible in size and cost. Query layer (DuckDB over S3, Athena) can be added later without
+touching the storage format.
+
+### Decision
+
+Probe history is written to S3-compatible object storage. Each probe run emits one JSON object.
+The writer is a separate component (not the exporter) triggered post-probe. If no S3 endpoint is
+configured, a local append file in state_dir serves as a fallback for single-node bare metal setups.
+
+The storage format is decided now; the query layer is deferred until the financial model's access
+patterns are understood. DuckDB over S3 is the expected query path — no database infrastructure
+required for initial financial analysis.
+
+### Consequences
+
+- No database to operate. Storage scales linearly with fleet size and probe frequency.
+- Full history is preserved and immutable. Each object is a complete, self-contained record.
+- The financial layer can be built incrementally — DuckDB queries against S3 objects require no
+  schema migration and no database deployment.
+- If query latency becomes a bottleneck (e.g. real-time dashboard over large fleet history),
+  Postgres can be introduced as a materialised query cache without changing the write path.
+- On-prem deployments without cloud storage use MinIO. The writer uses the S3 API only — no
+  vendor-specific SDK required.

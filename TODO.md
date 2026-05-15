@@ -42,8 +42,9 @@
 - [ ] Grafana alert annotations or contact point wiring (optional — Prometheus Alertmanager is sufficient)
 
 ### Baseline history
-- [ ] Append-only history record per GPU — each probe run appended to `{serial}.history` (timestamp, driver, perf_w_mean, sample_count); never read by the exporter, consumed by Phase 2 financial layer
-- [ ] Decide on history storage backend for bare metal (local append file vs. external store)
+- [ ] Per-probe JSON record written to S3 (or S3-compatible endpoint) — one object per run, keyed `{serial}/{timestamp}.json`; never read by the exporter, consumed by Phase 2 financial layer (see ADR-010)
+- [ ] Writer component — triggered post-probe, reads `{serial}.probe`, emits structured JSON to configured S3 endpoint; no-op if endpoint not configured
+- [ ] Local fallback — if S3 not configured, append to `{serial}.history` in state_dir for bare metal single-node setups
 
 ### Security
 - [ ] HTTP parser audit — review `read_request_line` against malformed/oversized input; confirm no path traversal or header injection surface
