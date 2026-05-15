@@ -25,6 +25,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef WITH_TLS
+#  include <mbedtls/ctr_drbg.h>
+#  include <mbedtls/entropy.h>
+#  include <mbedtls/net_sockets.h>
+#  include <mbedtls/ssl.h>
+#endif
+
 #include "config.h"
 #include "http.h"
 #include "snapshot.h"
@@ -435,6 +442,213 @@ static void test_metrics_perf_drop_nan(void) {
 }
 
 /* ==========================================================================
+ * Group C — TLS (only compiled with WITH_TLS=1)
+ * ========================================================================== */
+
+#ifdef WITH_TLS
+
+#define TEST_TLS_PORT  19109
+#define TEST_TLS_CERT  "/tmp/gpu-health-test.crt"
+#define TEST_TLS_KEY   "/tmp/gpu-health-test.key"
+
+static int   g_tls_parent_fd = -1;
+static pid_t g_tls_child_pid = -1;
+static int   g_tls_skip;      /* set if openssl cert generation failed */
+
+static void fixture_setup_tls(void) {
+    int rc = system("openssl req -x509 -newkey rsa:2048"
+                    " -keyout " TEST_TLS_KEY
+                    " -out "    TEST_TLS_CERT
+                    " -days 1 -nodes -subj '/CN=localhost'"
+                    " >/dev/null 2>&1");
+    if (rc != 0) {
+        fprintf(stderr, "  [SKIP] openssl not available — skipping TLS group\n");
+        g_tls_skip = 1;
+        return;
+    }
+
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) { perror("socketpair"); exit(1); }
+
+    gpu_ipc_init_t init = { .num_gpus = (int32_t)NUM_GPUS };
+    const char *p = (const char *)&init;
+    size_t rem = sizeof(init);
+    while (rem > 0) {
+        ssize_t n = write(fds[0], p, rem);
+        if (n <= 0) { perror("write init"); exit(1); }
+        p += n; rem -= (size_t)n;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) { perror("fork"); exit(1); }
+
+    if (pid == 0) {
+        close(fds[0]);
+        signal(SIGPIPE, SIG_IGN);
+
+        gpu_config_t cfg;
+        config_load(NULL, &cfg);
+        cfg.listen_port     = TEST_TLS_PORT;
+        cfg.poll_interval_s = 1;
+        strncpy(cfg.listen_addr,    "127.0.0.1",   sizeof(cfg.listen_addr) - 1);
+        strncpy(cfg.tls_cert_path,  TEST_TLS_CERT, sizeof(cfg.tls_cert_path) - 1);
+        strncpy(cfg.tls_key_path,   TEST_TLS_KEY,  sizeof(cfg.tls_key_path) - 1);
+
+        if (http_child_tls_init(&cfg) < 0) { fprintf(stderr, "TLS init failed\n"); _exit(1); }
+        http_child_run(fds[1], &cfg);
+        _exit(0);
+    }
+
+    close(fds[1]);
+    g_tls_parent_fd = fds[0];
+    g_tls_child_pid = pid;
+
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000L };
+    nanosleep(&ts, NULL);
+}
+
+static void fixture_teardown_tls(void) {
+    if (g_tls_child_pid > 0) {
+        kill(g_tls_child_pid, SIGTERM);
+        int status;
+        waitpid(g_tls_child_pid, &status, 0);
+        g_tls_child_pid = -1;
+    }
+    if (g_tls_parent_fd >= 0) { close(g_tls_parent_fd); g_tls_parent_fd = -1; }
+    unlink(TEST_TLS_CERT);
+    unlink(TEST_TLS_KEY);
+}
+
+/* Minimal mbedTLS client: connects, handshakes (no cert verification),
+ * sends one HTTP request, returns status code. */
+static int http_request_tls(const char *method, const char *path,
+                             char *resp_buf, size_t resp_cap) {
+    mbedtls_net_context      net;
+    mbedtls_ssl_context      ssl;
+    mbedtls_ssl_config       conf;
+    mbedtls_entropy_context  entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+
+    mbedtls_net_init(&net);
+    mbedtls_ssl_init(&ssl);
+    mbedtls_ssl_config_init(&conf);
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", TEST_TLS_PORT);
+
+    int ret = -1;
+    for (int i = 0; i < 50; i++) {
+        ret = mbedtls_net_connect(&net, "127.0.0.1", port_str, MBEDTLS_NET_PROTO_TCP);
+        if (ret == 0) break;
+        struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000L };
+        nanosleep(&ts, NULL);
+        mbedtls_net_free(&net);
+        mbedtls_net_init(&net);
+    }
+    if (ret != 0) goto cleanup;
+
+    if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+                                (const unsigned char *)"test", 4) != 0) goto cleanup;
+    if (mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT,
+                                     MBEDTLS_SSL_TRANSPORT_STREAM,
+                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0) goto cleanup;
+
+    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE); /* self-signed cert */
+    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+
+    if (mbedtls_ssl_setup(&ssl, &conf) != 0) goto cleanup;
+    mbedtls_ssl_set_bio(&ssl, &net, mbedtls_net_send, mbedtls_net_recv, NULL);
+
+    do { ret = mbedtls_ssl_handshake(&ssl); }
+    while (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE);
+    if (ret != 0) goto cleanup;
+
+    char req[256];
+    int req_len = snprintf(req, sizeof(req),
+                           "%s %s HTTP/1.0\r\nHost: localhost\r\n\r\n", method, path);
+    size_t sent = 0;
+    while ((int)sent < req_len) {
+        ret = mbedtls_ssl_write(&ssl, (unsigned char *)req + sent,
+                                (size_t)(req_len - (int)sent));
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+        if (ret < 0) goto cleanup;
+        sent += (size_t)ret;
+    }
+
+    char  local_buf[256 * 1024];
+    char *buf = resp_buf ? resp_buf : local_buf;
+    size_t cap = resp_buf ? resp_cap : sizeof(local_buf);
+    size_t pos = 0;
+    while (pos < cap - 1) {
+        ret = mbedtls_ssl_read(&ssl, (unsigned char *)buf + pos, cap - pos - 1);
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+        if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || ret == 0) break;
+        if (ret < 0) break;
+        pos += (size_t)ret;
+    }
+    buf[pos] = '\0';
+
+    mbedtls_ssl_close_notify(&ssl);
+    {
+        int status = 0;
+        sscanf(buf, "HTTP/1.%*d %d", &status);
+        mbedtls_ssl_free(&ssl);
+        mbedtls_ssl_config_free(&conf);
+        mbedtls_ctr_drbg_free(&ctr_drbg);
+        mbedtls_entropy_free(&entropy);
+        mbedtls_net_free(&net);
+        return status;
+    }
+
+cleanup:
+    mbedtls_ssl_free(&ssl);
+    mbedtls_ssl_config_free(&conf);
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+    mbedtls_net_free(&net);
+    return -1;
+}
+
+static void test_tls_ready_before_snapshot(void) {
+    if (g_tls_skip) return;
+    int status = http_request_tls("GET", "/ready", NULL, 0);
+    ASSERT_EQ_INT(status, 503);
+}
+
+static void test_tls_metrics_after_snapshot(void) {
+    if (g_tls_skip) return;
+
+    gpu_snapshot_t snap;
+    make_fake_snapshot(&snap);
+    gpu_ipc_msg_t msg = { .gpu_index = 0, .snapshot = snap };
+    const char *p = (const char *)&msg;
+    size_t rem = sizeof(msg);
+    while (rem > 0) {
+        ssize_t n = write(g_tls_parent_fd, p, rem);
+        if (n <= 0) break;
+        p += n; rem -= (size_t)n;
+    }
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = 50000000L };
+    nanosleep(&ts, NULL);
+
+    char resp[256 * 1024];
+    int status = http_request_tls("GET", "/metrics", resp, sizeof(resp));
+    ASSERT_EQ_INT(status, 200);
+    ASSERT(strstr(resp, "gpu_health_score") != NULL);
+    ASSERT(strstr(resp, TEST_SERIAL)        != NULL);
+}
+
+static void test_tls_404(void) {
+    if (g_tls_skip) return;
+    int status = http_request_tls("GET", "/bogus", NULL, 0);
+    ASSERT_EQ_INT(status, 404);
+}
+
+#endif /* WITH_TLS */
+
+/* ==========================================================================
  * main
  * ========================================================================== */
 
@@ -472,5 +686,15 @@ int main(void) {
     RUN_TEST(test_metrics_perf_drop_nan);
 
     fixture_teardown();
+
+#ifdef WITH_TLS
+    /* ---- Group C: TLS handshake and request flow -------------------------- */
+    fixture_setup_tls();
+    RUN_TEST(test_tls_ready_before_snapshot);
+    RUN_TEST(test_tls_metrics_after_snapshot);
+    RUN_TEST(test_tls_404);
+    fixture_teardown_tls();
+#endif
+
     return TEST_RESULT();
 }

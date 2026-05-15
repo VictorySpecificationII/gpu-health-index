@@ -16,6 +16,8 @@
 
 ### Optional TLS
 - [x] `http.c` — `WITH_TLS=1` build path: mbedTLS server setup, cert/key load from config (`tls_cert_path`, `tls_key_path`), wrap each accepted fd before request dispatch
+  - Local: TLS handshake + full request flow validated via `make WITH_TLS=1 build/test_http` (no GPU needed — test harness synthesises IPC)
+  - GPU node: validate that seccomp filter permits all handshake syscalls under the real `procpriv_child_setup()` path
 
 ### Deployment artifacts
 - [x] `deploy/gpu-health.service` — systemd unit (bare metal)
