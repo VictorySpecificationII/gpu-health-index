@@ -97,11 +97,12 @@ int dcgm_load(dcgm_vtable_t *vt, void **dl_handle)
     LOAD_REQ(GroupAddDevice,   "dcgmGroupAddDevice",                      NULL);
     LOAD_REQ(FieldGroupCreate, "dcgmFieldGroupCreate",                    NULL);
     LOAD_REQ(WatchFields,      "dcgmWatchFields",                         NULL);
-    /* Prefer v1 over v2: dcgmGetLatestValues_v2 in DCGM 4.x uses a different
-     * struct layout (dcgmFieldValue_v2) incompatible with our dcgm_field_value_t
-     * mirror of v1.  Use v1 directly; fall back to v2 only on older builds. */
-    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValues",
-                               "dcgmGetLatestValues_v2");
+    /* DCGM 4.x: dcgmGetLatestValuesForFields is the correct per-GPU field
+     * read API.  dcgmGetLatestValues requires a group/field-group watch to
+     * have populated the cache first; dcgmGetLatestValuesForFields handles
+     * the watch lifecycle internally.  Fall back to v1 for older builds. */
+    LOAD_REQ(GetLatestValues,  "dcgmGetLatestValuesForFields",
+                               "dcgmGetLatestValues");
     /* DCGM 4.x requires an explicit UpdateAllFields trigger before reading
      * values even in daemon mode.  Optional: absent on older DCGM versions. */
     LOAD_OPT(UpdateAllFields,  "dcgmUpdateAllFields",                     NULL);
