@@ -366,6 +366,8 @@ cardinality bloat and series discontinuity when metadata changes.
 | `gpu_memory_free_bytes` | Gauge | Memory free |
 | `gpu_memory_total_bytes` | Gauge | Total memory capacity |
 | `gpu_memory_bandwidth_utilization_ratio` | Gauge | Memory BW utilization 0.0–1.0 (DCGM; NaN = DCGM anomaly) |
+| `gpu_ecc_sbe_volatile_total` | Counter | SBE count since last driver reload |
+| `gpu_ecc_dbe_volatile_total` | Counter | DBE count since last driver reload |
 | `gpu_ecc_sbe_aggregate_total` | Counter | Lifetime SBE count (does not reset on driver reload) |
 | `gpu_ecc_dbe_aggregate_total` | Counter | Lifetime DBE count |
 | `gpu_retired_pages_sbe` | Gauge | Pages retired due to SBE |

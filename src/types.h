@@ -243,6 +243,8 @@ typedef struct {
     uint64_t            baseline_age_s;
 
     /* Raw current state — all gpu_state_t fields, for /metrics rendering */
+    uint64_t            ecc_sbe_volatile;   /* latest ring sample — resets on driver reload */
+    uint64_t            ecc_dbe_volatile;
     uint64_t            ecc_sbe_aggregate;
     uint64_t            ecc_dbe_aggregate;
     uint32_t            retired_pages_sbe;

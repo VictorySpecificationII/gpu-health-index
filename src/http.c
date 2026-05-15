@@ -489,6 +489,22 @@ static size_t render_metrics(char *buf, size_t cap) {
                         "%.4f", s->mem_bw_util_pct / 100.0);
     }
 
+    M_HEADER("gpu_ecc_sbe_volatile_total", "counter",
+             "ECC single-bit errors (volatile counter; resets on driver reload)");
+    for (int i = 0; i < n; i++) {
+        if (!slots[i].received) continue;
+        M_COUNTER_U64("gpu_ecc_sbe_volatile_total",
+                      slots[i].snap.serial, slots[i].snap.ecc_sbe_volatile);
+    }
+
+    M_HEADER("gpu_ecc_dbe_volatile_total", "counter",
+             "ECC double-bit errors (volatile counter; resets on driver reload)");
+    for (int i = 0; i < n; i++) {
+        if (!slots[i].received) continue;
+        M_COUNTER_U64("gpu_ecc_dbe_volatile_total",
+                      slots[i].snap.serial, slots[i].snap.ecc_dbe_volatile);
+    }
+
     M_HEADER("gpu_ecc_sbe_aggregate_total", "counter",
              "ECC single-bit errors (aggregate lifetime counter; does not reset on driver reload)");
     for (int i = 0; i < n; i++) {
