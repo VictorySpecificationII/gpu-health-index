@@ -310,8 +310,8 @@ int main(int argc, char **argv)
         d_B, CUDA_R_16BF, N,
         &beta,
         d_C, CUDA_R_32F,  N,
-        CUBLAS_COMPUTE_32F,
-        CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        CUBLAS_COMPUTE_32F_FAST_16BF,
+        CUBLAS_GEMM_DEFAULT));
     CUDA_CHECK(cudaDeviceSynchronize());
 
     /* ---- Warmup phase ---------------------------------------------------- */
@@ -327,8 +327,8 @@ int main(int argc, char **argv)
             d_B, CUDA_R_16BF, N,
             &beta,
             d_C, CUDA_R_32F,  N,
-            CUBLAS_COMPUTE_32F,
-            CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+            CUBLAS_COMPUTE_32F_FAST_16BF,
+            CUBLAS_GEMM_DEFAULT);
     }
     cudaDeviceSynchronize();
     printf("probe: warmup complete — entering measurement window\n");
@@ -353,13 +353,14 @@ int main(int argc, char **argv)
             d_B, CUDA_R_16BF, N,
             &beta,
             d_C, CUDA_R_32F,  N,
-            CUBLAS_COMPUTE_32F,
-            CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+            CUBLAS_COMPUTE_32F_FAST_16BF,
+            CUBLAS_GEMM_DEFAULT);
         interval_iters++;
 
         uint64_t now = now_ms();
         if (now - interval_start >= 1000u || now >= meas_end) {
             cudaDeviceSynchronize();
+            now = now_ms();  /* re-capture after sync — includes queue drain time */
 
             double elapsed_s = (double)(now - interval_start) / 1000.0;
             double tflops    = (flops_per_gemm * (double)interval_iters)
