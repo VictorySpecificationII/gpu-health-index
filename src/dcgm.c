@@ -248,9 +248,14 @@ int dcgm_poll(dcgm_vtable_t *vt, long handle, int gpu_id, dcgm_fields_t *out)
         switch (POLL_FIELDS[i]) {
 
         case DCGM_FI_DEV_POWER_USAGE:
-            /* double field, W */
-            if (values[i].value.dbl < DCGM_FP64_BLANK)
-                out->power_w = values[i].value.dbl;
+            /* DCGM 3.x: double, W.  DCGM 4.x: INT64, mW. */
+            if (values[i].fieldType == DCGM_FT_INT64) {
+                if (values[i].value.i64 < DCGM_INT64_BLANK)
+                    out->power_w = (double)values[i].value.i64 / 1000.0;
+            } else {
+                if (values[i].value.dbl < DCGM_FP64_BLANK)
+                    out->power_w = values[i].value.dbl;
+            }
             break;
 
         case DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION:
