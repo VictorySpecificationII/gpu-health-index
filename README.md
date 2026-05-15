@@ -302,7 +302,26 @@ docker compose up -d
 
 Prometheus discovers GPU nodes via the `file_sd.json` written by the exporter
 at startup. The stack mounts `/var/run/gpu-health` read-only to pick up the
-file automatically.
+file automatically. Ensure `file_sd_path` is set in `/etc/gpu-health/gpu-health.conf`:
+
+```
+file_sd_path = /var/run/gpu-health/file_sd.json
+```
+
+**TLS note:** if the exporter is built with `WITH_TLS=1`, Prometheus must be
+configured to scrape over HTTPS. Add a `tls_config` block to the scrape job in
+`prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: gpu-health
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true   # for self-signed certs
+    file_sd_configs:
+      - files: ['/var/run/gpu-health/file_sd.json']
+        refresh_interval: 30s
+```
 
 **Alert rules**
 
