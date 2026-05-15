@@ -321,7 +321,6 @@ cardinality bloat and series discontinuity when metadata changes.
 |---|---|---|
 | `gpu_info` | Gauge | Always 1. Labels: serial, uuid, model, driver, index, pcie_gen_max, pcie_width_max |
 | `gpu_identity_source` | Gauge | 0=serial number, 1=UUID fallback (serial unavailable) |
-| `gpu_present` | Gauge | 1 if GPU is responding; 0 if lost or error threshold exceeded |
 
 ### Windowed statistics (over scoring window)
 
@@ -418,6 +417,9 @@ cardinality bloat and series discontinuity when metadata changes.
 | `gpu_health_exporter_info` | Gauge | Always 1. Label: version |
 | `gpu_dcgm_available` | Gauge | 1 if DCGM is connected and responding |
 | `gpu_health_last_poll_timestamp` | Gauge | Unix timestamp of last successful poll |
+| `gpu_present` | Gauge | 1 if GPU device is still visible; 0 if it disappeared mid-run |
+| `gpu_available` | Gauge | 1 if NVML is responding for this GPU; 0 if above error threshold |
+| `gpu_health_collector_errors_total` | Counter | Cumulative NVML call errors for this GPU |
 
 ---
 

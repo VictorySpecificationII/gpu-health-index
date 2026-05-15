@@ -10,7 +10,6 @@
 - [x] `gpu_dcgm_available` in `http.c` is inferred from `isnan(mem_bw_util_pct)` — correctness gap: a field that reads NaN for other reasons would silently suppress the DCGM alert signal. Add explicit `dcgm_available` field to `gpu_snapshot_t`; set it in `snapshot_update()` from the `dcgm_available` param that is currently discarded. DCGM is operationally required on this fleet — this metric must be trustworthy.
 
 ### Security hardening
-> `procpriv.c` is stubs only (`PR_SET_NO_NEW_PRIVS`). Full implementation below.
 
 - [x] `procpriv_child_setup()` — `capset()` to all-zeros + seccomp whitelist: `accept4`, `read`, `write`, `close`, `select`, `socket`, `bind`, `listen`, `sendto`, `recvfrom`, `sigaction`, `exit_group`
 - [x] `procpriv_parent_setup()` — `capset()` drop to minimal set after NVML file descriptors are already open
